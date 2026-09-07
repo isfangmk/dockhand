@@ -34,9 +34,22 @@ describe('attachmentContentDisposition', () => {
 		expect(v).toContain('filename="backslash.log"');
 	});
 
-	test('handles non-ASCII via filename*', () => {
+	test('handles non-ASCII via filename* and ASCII-only filename fallback', () => {
 		const v = attachmentContentDisposition('résumé.txt');
+		expect(v).toContain('filename="r_sum_.txt"');
 		expect(v).toContain("filename*=UTF-8''r%C3%A9sum%C3%A9.txt");
+		// header value itself must stay within Latin-1 (no raw multi-byte chars)
+		for (const ch of v) {
+			expect(ch.charCodeAt(0)).toBeLessThanOrEqual(0xff);
+		}
+	});
+
+	test('Chinese filename uses filename* and ASCII fallback', () => {
+		const v = attachmentContentDisposition('未命名.py');
+		expect(v).toContain('filename="___.py"'); // 未命名 → 三个 _
+		expect(v).toContain("filename*=UTF-8''");
+		expect(v).toContain(encodeURIComponent('未命名.py'));
+		expect(() => new Headers({ 'Content-Disposition': v })).not.toThrow();
 	});
 
 	test('empty / whitespace falls back to "download"', () => {

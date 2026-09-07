@@ -8,7 +8,7 @@
 	import ConfirmPopover from '$lib/components/ConfirmPopover.svelte';
 	import FileSideDiff from './FileSideDiff.svelte';
 	import type { ContainerInfo } from '$lib/types';
-	import { appSettings } from '$lib/stores/settings';
+	import { appSettings, formatDateTime } from '$lib/stores/settings';
 	import { canAccess } from '$lib/stores/auth';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -632,10 +632,11 @@
 		return path.split('/').filter(Boolean).pop() || path;
 	}
 
+	/** 按设置中的默认时区与日期时间格式展示修订时间 */
 	function formatTime(iso: string | null): string {
 		if (!iso) return '';
 		try {
-			return new Date(iso).toLocaleString();
+			return formatDateTime(iso, true);
 		} catch {
 			return iso;
 		}
