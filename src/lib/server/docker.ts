@@ -532,17 +532,29 @@ export interface DockerClientConfig {
 	cert?: string;
 	key?: string;
 	skipVerify?: boolean;
-	// Hawser connection settings
-	connectionType?: 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge';
+	// Hawser / SSH connection settings
+	connectionType?: 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge' | 'ssh';
 	hawserToken?: string;
-	// Environment ID for edge mode routing
+	// Environment ID for edge mode routing / SSH tunnel
 	environmentId?: number;
 }
 
 /**
  * Build Docker client config from an environment
  */
-function buildConfigFromEnv(env: Environment): DockerClientConfig {
+async function buildConfigFromEnv(env: Environment): Promise<DockerClientConfig> {
+	// SSH：建立到远端 docker.sock 的本地隧道，再按 Unix socket 复用现有请求路径
+	if (env.connectionType === 'ssh') {
+		const { ensureSshDockerTunnel } = await import('./ssh-tunnel.js');
+		const socketPath = await ensureSshDockerTunnel(env.id);
+		return {
+			type: 'socket',
+			socketPath,
+			connectionType: 'ssh',
+			environmentId: env.id
+		};
+	}
+
 	// Socket connection type - use Unix socket
 	if (env.connectionType === 'socket' || !env.connectionType) {
 		return {
@@ -1026,8 +1038,15 @@ export async function dockerJsonRequest<T>(
 export function clearDockerClientCache(envId?: number) {
 	if (envId !== undefined) {
 		envCache.delete(envId);
+		// SSH 凭证或 socket 变更后必须重建隧道
+		import('./ssh-tunnel.js')
+			.then(({ closeSshTunnel }) => closeSshTunnel(envId))
+			.catch(() => {});
 	} else {
 		envCache.clear();
+		import('./ssh-tunnel.js')
+			.then(({ closeAllSshTunnels }) => closeAllSshTunnels())
+			.catch(() => {});
 	}
 	// Destroy HTTPS agents (TLS config may have changed)
 	for (const [key, cached] of agentCache.entries()) {

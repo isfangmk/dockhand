@@ -55,6 +55,11 @@ async function getDockerConfig(envId?: number | null): Promise<DockerClientConfi
 	if (env.connectionType === 'socket' || !env.connectionType) {
 		return { type: 'socket', socketPath: env.socketPath || socketPath };
 	}
+	if (env.connectionType === 'ssh') {
+		const { ensureSshDockerTunnel } = await import('$lib/server/ssh-tunnel');
+		const tunnelPath = await ensureSshDockerTunnel(envId);
+		return { type: 'socket', socketPath: tunnelPath };
+	}
 	if (env.connectionType === 'hawser-edge') {
 		return { type: 'hawser-edge', environmentId: envId };
 	}

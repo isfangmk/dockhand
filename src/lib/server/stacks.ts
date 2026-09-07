@@ -408,8 +408,12 @@ export function isHawserConnection(env: { connectionType?: string | null } | nul
 export function isLocalConnection(env: { connectionType?: string | null } | null | undefined): boolean {
 	if (!env) return true;
 	const ct = env.connectionType;
+	// SSH 在远端执行 compose，不算本机连接
 	return ct === 'socket' || ct === 'direct' || !ct;
 }
+
+/** SSH 环境默认远端栈目录（用户未配置 remote_stacks_dir 时） */
+const SSH_DEFAULT_STACKS_DIR = '/var/lib/dockhand/stacks';
 
 /** Flat STACKS_DIR/<stackName>/ layout applies to socket/direct (and no-env) when STACKS_DIR is set. */
 export async function usesFlatLocalStacksDir(envId?: number | null): Promise<boolean> {
@@ -1558,6 +1562,165 @@ async function executeLocalCompose(
 }
 
 /**
+ * 通过 SSH：SFTP 上传栈文件到远端，再在远端执行 docker compose。
+ * 不走「隧道 + 本机 CLI」，以免相对 bind/include 解析到 Dockhand 本机路径。
+ */
+async function executeComposeViaSsh(
+	operation: 'up' | 'down' | 'stop' | 'start' | 'restart' | 'pull' | 'build',
+	stackName: string,
+	composeContent: string,
+	envId: number,
+	envVars?: Record<string, string>,
+	secretVars?: Record<string, string>,
+	forceRecreate?: boolean,
+	removeVolumes?: boolean,
+	stackFiles?: Record<string, string>,
+	serviceName?: string,
+	composeFileName?: string,
+	build?: boolean,
+	noBuildCache?: boolean,
+	pullPolicy?: string,
+	removeFiles?: boolean
+): Promise<StackOperationResult> {
+	const logPrefix = `[Stack:${stackName}]`;
+	const {
+		getSshSftp,
+		sshMkdirp,
+		sshWriteFile,
+		sshExec,
+		shellQuote
+	} = await import('./ssh-tunnel.js');
+	const { getEnvSetting, getRegistries } = await import('./db.js');
+
+	const remoteStacksDirSetting = await getEnvSetting('remote_stacks_dir', envId);
+	const baseDir =
+		typeof remoteStacksDirSetting === 'string' && remoteStacksDirSetting.trim()
+			? remoteStacksDirSetting.trim().replace(/\/+$/, '')
+			: SSH_DEFAULT_STACKS_DIR;
+	const remoteDir = `${baseDir}/${stackName}`;
+	const composeName = composeFileName || 'compose.yaml';
+
+	console.log(`${logPrefix} ----------------------------------------`);
+	console.log(`${logPrefix} EXECUTE COMPOSE VIA SSH`);
+	console.log(`${logPrefix} ----------------------------------------`);
+	console.log(`${logPrefix} Operation:`, operation);
+	console.log(`${logPrefix} Remote dir:`, remoteDir);
+
+	try {
+		const sftp = await getSshSftp(envId);
+		await sshMkdirp(sftp, remoteDir);
+
+		const files: Record<string, string> = { ...(stackFiles || {}) };
+		files[composeName] = composeContent;
+
+		if (envVars && Object.keys(envVars).length > 0) {
+			if (!files['.env']) {
+				files['.env'] = Object.entries(envVars)
+					.map(([key, value]) => `${key}=${value}`)
+					.join('\n');
+			}
+		}
+
+		for (const [relPath, content] of Object.entries(files)) {
+			const normalized = relPath.replace(/^\/+/, '').replace(/\.\./g, '');
+			if (!normalized) continue;
+			const remotePath = `${remoteDir}/${normalized}`;
+			const parent = remotePath.includes('/') ? remotePath.slice(0, remotePath.lastIndexOf('/')) : remoteDir;
+			if (parent !== remoteDir) await sshMkdirp(sftp, parent);
+			await sshWriteFile(sftp, remotePath, content);
+			console.log(`${logPrefix} Uploaded ${normalized} (${content.length} chars)`);
+		}
+
+		try {
+			(sftp as { end?: () => void }).end?.();
+		} catch {
+			/* ignore */
+		}
+
+		// 私有仓库：在远端 docker login（对齐 Hawser）
+		const allRegistries = await getRegistries();
+		const registries = allRegistries.filter((r) => r.username && r.password);
+		for (const reg of registries) {
+			const loginCmd = `echo ${shellQuote(reg.password!)} | docker login ${shellQuote(reg.url)} -u ${shellQuote(reg.username!)} --password-stdin`;
+			const loginResult = await sshExec(envId, loginCmd, { timeoutMs: 60000 });
+			if (loginResult.code !== 0) {
+				console.warn(
+					`${logPrefix} docker login failed for ${reg.url}: ${loginResult.stderr || loginResult.stdout}`
+				);
+			}
+		}
+
+		const opArgs = buildComposeOperationArgs(operation, {
+			forceRecreate,
+			removeVolumes,
+			build,
+			noBuildCache,
+			pullPolicy,
+			serviceName
+		});
+
+		const parts: string[] = ['docker', 'compose', '-p', stackName, '-f', composeName];
+		if (files['.env']) {
+			parts.push('--env-file', '.env');
+		}
+		if (files['.env.dockhand']) {
+			parts.push('--env-file', '.env.dockhand');
+		}
+		for (const name of Object.keys(files)) {
+			if (/^compose\.override\.(ya?ml)$/i.test(name) || /^docker-compose\.override\.(ya?ml)$/i.test(name)) {
+				parts.push('-f', name);
+			}
+		}
+		parts.push(...opArgs);
+
+		const command = `cd ${shellQuote(remoteDir)} && ${parts.map(shellQuote).join(' ')}`;
+		console.log(`${logPrefix} Remote command: docker compose ${opArgs.join(' ')} (in ${remoteDir})`);
+
+		const secretEnv = { ...(secretVars || {}) };
+		const result = await sshExec(envId, command, {
+			timeoutMs: COMPOSE_TIMEOUT_MS,
+			env: Object.keys(secretEnv).length > 0 ? secretEnv : undefined
+		});
+
+		const output = [result.stdout, result.stderr].filter(Boolean).join('\n');
+		if (result.code === 0) {
+			if (removeFiles && operation === 'down') {
+				await sshExec(envId, `rm -rf ${shellQuote(remoteDir)}`, { timeoutMs: 60000 });
+			}
+			return {
+				success: true,
+				output: output || `Stack "${stackName}" ${operation} completed via SSH`
+			};
+		}
+
+		const combined = `${result.stdout}\n${result.stderr}`;
+		if (/unknown command|compose.*not found|plugin.*not found/i.test(combined)) {
+			return {
+				success: false,
+				output: redactSecretVars(output, secretVars),
+				error: 'Remote host has no working `docker compose` plugin. Install Docker Compose v2 on the SSH host.'
+			};
+		}
+
+		return {
+			success: false,
+			output: redactSecretVars(result.stdout || '', secretVars),
+			error: redactSecretVars(
+				result.stderr || `docker compose ${operation} exited with code ${result.code}`,
+				secretVars
+			)
+		};
+	} catch (err: any) {
+		console.log(`${logPrefix} EXCEPTION in executeComposeViaSsh:`, err.message);
+		return {
+			success: false,
+			output: '',
+			error: redactSecretVars(`Failed to ${operation} via SSH: ${err.message}`, secretVars)
+		};
+	}
+}
+
+/**
  * Execute a docker compose command via Hawser agent.
  *
  * @param envVars - Non-secret environment variables (from .env file)
@@ -1800,6 +1963,56 @@ async function executeComposeCommand(
 	}
 
 	switch (env.connectionType) {
+		case 'ssh': {
+			let sshEnvVars = envVars;
+			if (envPath && existsSync(envPath)) {
+				try {
+					const envFileContent = readFileSync(envPath, 'utf-8');
+					const envFileVars = parseEnvFileContent(envFileContent, stackName);
+					sshEnvVars = { ...envFileVars, ...(envVars || {}) };
+				} catch (err) {
+					console.warn(`[Stack:${stackName}] Failed to read .env file at ${envPath}:`, err);
+				}
+			}
+
+			let sshStackFiles = stackFiles;
+			const composeDir = workingDir || (composePath ? dirname(composePath) : null);
+			const composeBaseName = composePath ? basename(composePath) : 'compose.yaml';
+			if (composeDir) {
+				const overridePath = findComposeOverrideFile(composeDir, composeBaseName);
+				if (overridePath) {
+					try {
+						const overrideContent = readFileSync(overridePath, 'utf-8');
+						sshStackFiles = { ...(sshStackFiles || {}), [basename(overridePath)]: overrideContent };
+					} catch (err) {
+						console.warn(`[Stack:${stackName}] Failed to read override file at ${overridePath}:`, err);
+					}
+				}
+			}
+
+			if (useOverrideFile && envVars && Object.keys(envVars).length > 0) {
+				sshStackFiles = { ...(sshStackFiles || {}), '.env.dockhand': buildDockhandOverrideFile(envVars) };
+			}
+
+			return executeComposeViaSsh(
+				operation,
+				stackName,
+				composeContent,
+				envId!,
+				sshEnvVars,
+				secretVars,
+				forceRecreate,
+				removeVolumes,
+				sshStackFiles,
+				serviceName,
+				composeFileName,
+				build,
+				noBuildCache,
+				pullPolicy,
+				removeFiles
+			);
+		}
+
 		case 'hawser-standard':
 		case 'hawser-edge': {
 			// For Hawser deployments, we need to read the .env file and send variables via envVars

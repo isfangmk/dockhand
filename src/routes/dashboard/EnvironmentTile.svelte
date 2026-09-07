@@ -1,6 +1,6 @@
 <script lang="ts">
 	import * as Card from '$lib/components/ui/card';
-	import { Wifi, WifiOff, ShieldCheck, Activity, Cpu, Settings, Unplug, Icon, Route, UndoDot, CircleArrowUp, CircleFadingArrowUp, Loader2 } from 'lucide-svelte';
+	import { Wifi, WifiOff, ShieldCheck, Activity, Cpu, Settings, Unplug, Icon, Route, UndoDot, CircleArrowUp, CircleFadingArrowUp, Loader2, Key } from 'lucide-svelte';
 	import { whale } from '@lucide/lab';
 	import EnvironmentIcon from '$lib/components/EnvironmentIcon.svelte';
 	import { goto } from '$app/navigation';
@@ -72,6 +72,10 @@
 						<span title="Direct Docker connection" class="shrink-0">
 							<Icon iconNode={whale} class="w-4 h-4 text-blue-500 glow-blue" />
 						</span>
+					{:else if stats.connectionType === 'ssh'}
+						<span title="SSH host connection" class="shrink-0">
+							<Key class="w-4 h-4 text-amber-500" />
+						</span>
 					{:else if stats.connectionType === 'hawser-standard'}
 						<span title="Hawser agent (standard mode)" class="shrink-0">
 							<Route class="w-4 h-4 text-purple-500 glow-purple" />
@@ -95,6 +99,7 @@
 						<span class="text-xs text-muted-foreground truncate block" title={stats.connectionType === 'socket' ? (stats.socketPath || '/var/run/docker.sock') : stats.connectionType === 'hawser-edge' ? 'Edge connection' : (stats.port ? `${stats.host}:${stats.port}` : stats.host || 'Unknown host')}>
 							{stats.connectionType === 'socket' ? (stats.socketPath || '/var/run/docker.sock') :
 							 stats.connectionType === 'hawser-edge' ? 'Edge connection' :
+							 stats.connectionType === 'ssh' ? (stats.host || 'SSH host') :
 							 (stats.port ? `${stats.host}:${stats.port}` : stats.host || 'Unknown host')}
 						</span>
 					</div>
@@ -168,6 +173,10 @@
 						<span title="Direct Docker connection" class="shrink-0">
 							<Icon iconNode={whale} class="w-4 h-4 text-blue-500 glow-blue" />
 						</span>
+					{:else if stats.connectionType === 'ssh'}
+						<span title="SSH host connection" class="shrink-0">
+							<Key class="w-4 h-4 text-amber-500" />
+						</span>
 					{:else if stats.connectionType === 'hawser-standard'}
 						<span title="Hawser agent (standard mode)" class="shrink-0">
 							<Route class="w-4 h-4 text-purple-500 glow-purple" />
@@ -191,6 +200,7 @@
 						<span class="text-xs text-muted-foreground truncate block" title={stats.connectionType === 'socket' ? (stats.socketPath || '/var/run/docker.sock') : stats.connectionType === 'hawser-edge' ? 'Edge connection' : (stats.port ? `${stats.host}:${stats.port}` : stats.host || 'Unknown host')}>
 							{stats.connectionType === 'socket' ? (stats.socketPath || '/var/run/docker.sock') :
 							 stats.connectionType === 'hawser-edge' ? 'Edge connection' :
+							 stats.connectionType === 'ssh' ? (stats.host || 'SSH host') :
 							 (stats.port ? `${stats.host}:${stats.port}` : stats.host || 'Unknown host')}
 						</span>
 					</div>
@@ -271,6 +281,10 @@
 					<span title="Direct Docker connection" class="shrink-0">
 						<Icon iconNode={whale} class="w-4 h-4 text-blue-500 glow-blue" />
 					</span>
+				{:else if stats.connectionType === 'ssh'}
+					<span title="SSH host connection" class="shrink-0">
+						<Key class="w-4 h-4 text-amber-500" />
+					</span>
 				{:else if stats.connectionType === 'hawser-standard'}
 					<span title="Hawser agent (standard mode)" class="shrink-0">
 						<Route class="w-4 h-4 text-purple-500 glow-purple" />
@@ -294,6 +308,7 @@
 					<span class="text-xs text-muted-foreground truncate block" title={stats.connectionType === 'socket' ? (stats.socketPath || '/var/run/docker.sock') : stats.connectionType === 'hawser-edge' ? 'Edge connection' : (stats.port ? `${stats.host}:${stats.port}` : stats.host || 'Unknown host')}>
 						{stats.connectionType === 'socket' ? (stats.socketPath || '/var/run/docker.sock') :
 						 stats.connectionType === 'hawser-edge' ? 'Edge connection' :
+						 stats.connectionType === 'ssh' ? (stats.host || 'SSH host') :
 						 (stats.port ? `${stats.host}:${stats.port}` : stats.host || 'Unknown host')}
 					</span>
 				</div>
@@ -372,6 +387,10 @@
 					<span title="Direct Docker connection" class="shrink-0">
 						<Icon iconNode={whale} class="w-4 h-4 text-blue-500 glow-blue" />
 					</span>
+				{:else if stats.connectionType === 'ssh'}
+					<span title="SSH host connection" class="shrink-0">
+						<Key class="w-4 h-4 text-amber-500" />
+					</span>
 				{:else if stats.connectionType === 'hawser-standard'}
 					<span title="Hawser agent (standard mode)" class="shrink-0">
 						<Route class="w-4 h-4 text-purple-500 glow-purple" />
@@ -395,6 +414,7 @@
 					<span class="text-xs text-muted-foreground truncate block" title={stats.connectionType === 'socket' ? (stats.socketPath || '/var/run/docker.sock') : stats.connectionType === 'hawser-edge' ? 'Edge connection' : (stats.port ? `${stats.host}:${stats.port}` : stats.host || 'Unknown host')}>
 						{stats.connectionType === 'socket' ? (stats.socketPath || '/var/run/docker.sock') :
 						 stats.connectionType === 'hawser-edge' ? 'Edge connection' :
+						 stats.connectionType === 'ssh' ? (stats.host || 'SSH host') :
 						 (stats.port ? `${stats.host}:${stats.port}` : stats.host || 'Unknown host')}
 					</span>
 				</div>
@@ -476,6 +496,10 @@
 					<span title="Direct Docker connection" class="shrink-0">
 						<Icon iconNode={whale} class="w-4 h-4 text-blue-500 glow-blue" />
 					</span>
+				{:else if stats.connectionType === 'ssh'}
+					<span title="SSH host connection" class="shrink-0">
+						<Key class="w-4 h-4 text-amber-500" />
+					</span>
 				{:else if stats.connectionType === 'hawser-standard'}
 					<span title="Hawser agent (standard mode)" class="shrink-0">
 						<Route class="w-4 h-4 text-purple-500 glow-purple" />
@@ -499,6 +523,7 @@
 					<span class="text-xs text-muted-foreground truncate block" title={stats.connectionType === 'socket' ? (stats.socketPath || '/var/run/docker.sock') : stats.connectionType === 'hawser-edge' ? 'Edge connection' : (stats.port ? `${stats.host}:${stats.port}` : stats.host || 'Unknown host')}>
 						{stats.connectionType === 'socket' ? (stats.socketPath || '/var/run/docker.sock') :
 						 stats.connectionType === 'hawser-edge' ? 'Edge connection' :
+						 stats.connectionType === 'ssh' ? (stats.host || 'SSH host') :
 						 (stats.port ? `${stats.host}:${stats.port}` : stats.host || 'Unknown host')}
 					</span>
 				</div>

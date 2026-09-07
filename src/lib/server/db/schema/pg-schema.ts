@@ -39,14 +39,23 @@ export const environments = pgTable('environments', {
 	highlightChanges: boolean('highlight_changes').default(true),
 	labels: text('labels'), // JSON array of label strings for categorization
 	// Connection settings
-	connectionType: text('connection_type').default('socket'), // 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge'
-	socketPath: text('socket_path').default('/var/run/docker.sock'), // Unix socket path for 'socket' connection type
+	connectionType: text('connection_type').default('socket'), // 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge' | 'ssh'
+	socketPath: text('socket_path').default('/var/run/docker.sock'), // Unix socket path for 'socket' / remote path for 'ssh'
 	hawserToken: text('hawser_token'), // Plain-text token for hawser-standard auth
 	hawserLastSeen: timestamp('hawser_last_seen', { mode: 'string' }),
 	hawserAgentId: text('hawser_agent_id'),
 	hawserAgentName: text('hawser_agent_name'),
 	hawserVersion: text('hawser_version'),
 	hawserCapabilities: text('hawser_capabilities'), // JSON array: ["compose", "exec", "metrics"]
+	// SSH 主机：独立于 Docker TCP port，避免复用 port(2375)
+	sshPort: integer('ssh_port').default(22),
+	sshUsername: text('ssh_username'),
+	sshAuthType: text('ssh_auth_type'), // 'password' | 'key'
+	sshPassword: text('ssh_password'),
+	sshPrivateKey: text('ssh_private_key'),
+	sshPassphrase: text('ssh_passphrase'),
+	sshHostKeyFingerprint: text('ssh_host_key_fingerprint'), // TOFU SHA256
+	sshSkipHostKey: boolean('ssh_skip_host_key').default(false),
 	createdAt: timestamp('created_at', { mode: 'string' }).defaultNow(),
 	updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow()
 });

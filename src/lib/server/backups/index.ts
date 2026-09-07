@@ -190,9 +190,17 @@ async function planStackDirVolume(
 			envName = env?.name ?? null;
 			envTcpHost = env?.host && env?.port ? `tcp://${env.host}:${env.port}` : null;
 			isHawser = envConnType === 'hawser-standard' || envConnType === 'hawser-edge';
-			if (envConnType === 'direct') {
+			const isSsh = envConnType === 'ssh';
+			if (envConnType === 'direct' || isSsh) {
 				const rsd = await getEnvSetting('remote_stacks_dir', envId);
-				remoteStacksDir = typeof rsd === 'string' && rsd.trim() ? normalizeBaseDir(rsd) : null;
+				remoteStacksDir = typeof rsd === 'string' && rsd.trim()
+					? normalizeBaseDir(rsd)
+					: isSsh
+						? normalizeBaseDir('/var/lib/dockhand/stacks')
+						: null;
+				if (isSsh && !(typeof rsd === 'string' && rsd.trim())) {
+					remoteStacksDirDefaulted = true;
+				}
 			} else if (isHawser) {
 				// Same `remote_stacks_dir` setting as direct, but for hawser it is a BACKUP-ONLY
 				// declaration of where the AGENT keeps stack files on its host - it does NOT steer

@@ -198,6 +198,7 @@ export function classifyProbeListing(stdout: string): 'has-data' | 'empty' | 'mi
  */
 export function isLocalDaemon(connectionType: string | null, envTcpHost: string | null, ownDockerHost: string | null): boolean {
 	if (connectionType && connectionType.startsWith('hawser')) return false;
+	if (connectionType === 'ssh') return false;
 	if (connectionType === 'socket' || connectionType == null) return true;
 	if (connectionType === 'direct') return !!(ownDockerHost && envTcpHost && ownDockerHost === envTcpHost);
 	return false;

@@ -29,10 +29,11 @@ export function backendSupportsTls(
 	return !!(opts?.isEditing && opts?.hasStoredCert);
 }
 
-/** An environment reachable over the network (hawser or direct-with-host). */
+/** An environment reachable over the network (hawser, SSH, or direct-with-host). */
 export function isRemoteEnvironment(env?: { connectionType?: string | null; host?: string | null } | null): boolean {
 	if (!env) return false;
 	if (env.connectionType === 'hawser-standard' || env.connectionType === 'hawser-edge') return true;
+	if (env.connectionType === 'ssh') return true;
 	if (env.connectionType === 'direct' && !!env.host) return true;
 	return false;
 }

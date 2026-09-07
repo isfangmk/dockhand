@@ -12,14 +12,15 @@
 		Icon,
 		CircleArrowUp,
 		CircleFadingArrowUp,
-		Loader2
+		Loader2,
+		Key
 	} from 'lucide-svelte';
 	import { whale } from '@lucide/lab';
 	import EnvironmentIcon from '$lib/components/EnvironmentIcon.svelte';
 	import { goto } from '$app/navigation';
 	import { canAccess } from '$lib/stores/auth';
 
-	type ConnectionType = 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge';
+	type ConnectionType = 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge' | 'ssh';
 
 	interface Props {
 		name: string;
@@ -67,6 +68,7 @@
 	const hostDisplay = $derived(
 		connectionType === 'socket' ? (socketPath || '/var/run/docker.sock') :
 		connectionType === 'hawser-edge' ? 'Edge connection' :
+		connectionType === 'ssh' ? (host || 'SSH host') :
 		(port ? `${host}:${port}` : host || 'Unknown host')
 	);
 
@@ -116,6 +118,10 @@
 			{:else if connectionType === 'direct'}
 				<span title="Direct Docker connection">
 					<Icon iconNode={whale} class="w-4 h-4 text-blue-500 glow-blue" />
+				</span>
+			{:else if connectionType === 'ssh'}
+				<span title="SSH host connection">
+					<Key class="w-4 h-4 text-amber-500" />
 				</span>
 			{:else if connectionType === 'hawser-standard'}
 				<span title="Hawser agent (standard mode)">

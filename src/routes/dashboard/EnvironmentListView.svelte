@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Loader2, Circle, Route, UndoDot, Plug, Icon, CircleArrowUp } from 'lucide-svelte';
+	import { Loader2, Circle, Route, UndoDot, Plug, Icon, CircleArrowUp, Key } from 'lucide-svelte';
 	import { whale } from '@lucide/lab';
 	import EnvironmentIcon from '$lib/components/EnvironmentIcon.svelte';
 	import { getLabelColors } from '$lib/utils/label-colors';
@@ -26,6 +26,7 @@
 			case 'hawser-standard': return 'Standard';
 			case 'hawser-edge': return 'Edge';
 			case 'direct': return 'Direct';
+			case 'ssh': return 'SSH';
 			case 'socket': return 'Socket';
 			default: return 'Socket';
 		}
@@ -151,6 +152,8 @@
 							<UndoDot class="w-3.5 h-3.5 shrink-0" />
 						{:else if s.connectionType === 'direct'}
 							<Plug class="w-3.5 h-3.5 shrink-0" />
+						{:else if s.connectionType === 'ssh'}
+							<Key class="w-3.5 h-3.5 shrink-0" />
 						{:else}
 							<Icon iconNode={whale} class="w-3.5 h-3.5 shrink-0" />
 						{/if}

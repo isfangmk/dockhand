@@ -145,6 +145,11 @@ function resolveDockerTarget(
 		return { type: 'hawser-edge', environmentId: envId };
 	}
 
+	// SSH 由 getDockerTarget 异步建立本地隧道后再当作 unix socket
+	if (env.connection_type === 'ssh') {
+		return { type: 'unix', socket: `__ssh__:${envId}`, environmentId: envId };
+	}
+
 	// Build TLS config if using HTTPS protocol
 	let tls: DockerTarget['tls'] | undefined;
 	if (env.protocol === 'https') {
@@ -333,13 +338,20 @@ function getEnvironment(id: number): { host: string; port: number; is_local: boo
 	return row ? { ...row, is_local: Boolean(row.is_local) } : null;
 }
 
-function getDockerTarget(envId?: number): DockerTarget {
+async function getDockerTarget(envId?: number): Promise<DockerTarget> {
 	const dockerSocketPath = detectDockerSocket();
-	return resolveDockerTarget(
+	const target = resolveDockerTarget(
 		envId,
 		(id) => getEnvironment(id) as EnvironmentRow | null,
 		dockerSocketPath
 	);
+	// 开发态终端：SSH 环境复用应用内隧道模块，转发到远端 docker.sock
+	if (target.socket?.startsWith('__ssh__:') && target.environmentId) {
+		const { ensureSshDockerTunnel } = await import('./src/lib/server/ssh-tunnel.js');
+		const socketPath = await ensureSshDockerTunnel(target.environmentId);
+		return { type: 'unix', socket: socketPath, environmentId: target.environmentId };
+	}
+	return target;
 }
 
 // Helper to make HTTP requests to Docker (supports Unix sockets and TCP with TLS)
@@ -381,14 +393,14 @@ function dockerHttpRequest(method: string, path: string, target: DockerTarget, b
 	});
 }
 
-async function createExecForWs(containerId: string, cmd: string[], user: string, target: ReturnType<typeof getDockerTarget>): Promise<{ Id: string }> {
+async function createExecForWs(containerId: string, cmd: string[], user: string, target: DockerTarget): Promise<{ Id: string }> {
 	const body = JSON.stringify({ AttachStdin: true, AttachStdout: true, AttachStderr: true, Tty: true, Cmd: cmd, User: user });
 	const res = await dockerHttpRequest('POST', '/containers/' + containerId + '/exec', target, body);
 	if (res.statusCode !== 201) throw new Error('Failed to create exec: ' + res.body);
 	return JSON.parse(res.body);
 }
 
-async function resizeExecForWs(execId: string, cols: number, rows: number, target: ReturnType<typeof getDockerTarget>): Promise<void> {
+async function resizeExecForWs(execId: string, cols: number, rows: number, target: DockerTarget): Promise<void> {
 	try {
 		await dockerHttpRequest('POST', '/exec/' + execId + '/resize?h=' + rows + '&w=' + cols, target);
 	} catch {
@@ -631,7 +643,7 @@ function webSocketPlugin(): Plugin {
 						}
 					}
 
-					const target = getDockerTarget(envId);
+					const target = await getDockerTarget(envId);
 
 					try {
 						// Handle Hawser Edge mode differently - use WebSocket protocol

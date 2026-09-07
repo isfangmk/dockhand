@@ -4,10 +4,11 @@ import type { DockerClientConfig } from '$lib/server/docker';
 import { getEnvironment } from '$lib/server/db';
 import { authorize } from '$lib/server/authorize';
 import { isSafeNotificationUrl } from '$lib/server/url-safety';
+import { probeSshDocker } from '$lib/server/ssh-tunnel';
 import type { RequestHandler } from './$types';
 
 interface TestConnectionRequest {
-	connectionType: 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge';
+	connectionType: 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge' | 'ssh';
 	socketPath?: string;
 	host?: string;
 	port?: number;
@@ -17,12 +18,18 @@ interface TestConnectionRequest {
 	tlsKey?: string;
 	tlsSkipVerify?: boolean;
 	hawserToken?: string;
+	sshPort?: number;
+	sshUsername?: string;
+	sshAuthType?: 'password' | 'key';
+	sshPassword?: string;
+	sshPrivateKey?: string;
+	sshPassphrase?: string;
+	sshHostKeyFingerprint?: string;
+	sshSkipHostKey?: boolean;
 	/**
-	 * When editing an existing environment, secrets (hawserToken, tlsKey) are never sent
-	 * back to the client, so an unchanged token comes through empty. Passing the env id lets
-	 * the server fall back to the STORED secret for any secret field the body left blank, so
-	 * "Test connection" works without re-typing the token (#1483). Non-secret fields still
-	 * come from the body, so the test reflects the edited form.
+	 * When editing an existing environment, secrets are never sent back to the client,
+	 * so an unchanged secret comes through empty. Passing the env id lets the server
+	 * fall back to the STORED secret for any blank secret field (#1483).
 	 */
 	environmentId?: number;
 }
@@ -54,26 +61,19 @@ function buildDockerClientConfig(config: TestConnectionRequest): DockerClientCon
  * Test Docker connection with provided configuration (without saving to database)
  *
  * @openapi
- * summary: Test a Docker/Hawser connection configuration WITHOUT saving it as an environment
- * description: Pass environmentId to fall back to that saved environment's stored secrets (hawserToken, tlsKey) for any secret field left blank in the body, so Test connection works when editing without re-entering the token.
- * body: {connectionType:string!, socketPath:string, host:string, port:integer, protocol:string, tlsCa:string, tlsCert:string, tlsKey:string, tlsSkipVerify:boolean, hawserToken:string, environmentId:integer}
+ * summary: Test a Docker/Hawser/SSH connection configuration WITHOUT saving it as an environment
+ * description: Pass environmentId to fall back to that saved environment's stored secrets for any secret field left blank in the body.
+ * body: {connectionType:string!, socketPath:string, host:string, port:integer, protocol:string, tlsCa:string, tlsCert:string, tlsKey:string, tlsSkipVerify:boolean, hawserToken:string, sshPort:integer, sshUsername:string, sshAuthType:string, sshPassword:string, sshPrivateKey:string, sshPassphrase:string, sshSkipHostKey:boolean, environmentId:integer}
  * body-example: {"connectionType":"socket","socketPath":"/var/run/docker.sock"}
- * resp-200: {success:boolean!, info:{serverVersion:string, containers:integer, images:integer, name:string}, hawser:{}}
- * resp-200-desc: success:false with a human-readable error message is also returned as HTTP 200 (connection failures are not transport errors)
- * resp-400: Host is required for direct/hawser-standard connection types
+ * resp-200: {success:boolean!, info:{serverVersion:string, containers:integer, images:integer, name:string}, hawser:{}, fingerprint:string}
+ * resp-400: Host is required for direct/hawser-standard/ssh connection types
  * resp-403: The caller cannot access the environment named by environmentId
  */
 export const POST: RequestHandler = async ({ request, cookies }) => {
 	try {
 		const config: TestConnectionRequest = await request.json();
 
-		// Fill unchanged secrets from the stored environment when editing (#1483): the client
-		// never receives hawserToken / tlsKey, so an untouched field arrives empty. Only fall
-		// back for a BLANK field, so a freshly typed token/key still wins.
 		if (config.environmentId) {
-			// Gate the id: without this, any authenticated user could name another
-			// environment's id and have its stored token sent to a body-supplied host,
-			// exfiltrating a secret they may have no access to (env-scoped RBAC).
 			const auth = await authorize(cookies);
 			if (!(await auth.canAccessEnvironment(config.environmentId))) {
 				return json({ success: false, error: 'Access denied' }, { status: 403 });
@@ -82,17 +82,60 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			if (stored) {
 				if (!config.hawserToken) config.hawserToken = stored.hawserToken || undefined;
 				if (!config.tlsKey) config.tlsKey = stored.tlsKey || undefined;
+				if (!config.sshPassword) config.sshPassword = stored.sshPassword || undefined;
+				if (!config.sshPrivateKey) config.sshPrivateKey = stored.sshPrivateKey || undefined;
+				if (!config.sshPassphrase) config.sshPassphrase = stored.sshPassphrase || undefined;
+				if (!config.sshHostKeyFingerprint) {
+					config.sshHostKeyFingerprint = stored.sshHostKeyFingerprint || undefined;
+				}
 			}
 		}
 
-		// Build fetch options based on connection type
 		let response: Response;
+		let sshFingerprint: string | undefined;
 
-		if (config.connectionType === 'socket') {
+		if (config.connectionType === 'ssh') {
+			const host = config.host;
+			if (!host) {
+				return json({ success: false, error: 'Host is required' }, { status: 400 });
+			}
+			if (!config.sshUsername) {
+				return json({ success: false, error: 'SSH username is required' }, { status: 400 });
+			}
+
+			const hostSafety = isSafeNotificationUrl(`http://${host}:${config.sshPort || 22}`);
+			if (!hostSafety.ok) {
+				return json({ success: false, error: `Host not allowed: ${hostSafety.reason}` }, { status: 200 });
+			}
+
+			const { info, fingerprint } = await probeSshDocker({
+				host,
+				sshPort: config.sshPort || 22,
+				sshUsername: config.sshUsername,
+				sshAuthType: config.sshAuthType || 'password',
+				sshPassword: config.sshPassword,
+				sshPrivateKey: config.sshPrivateKey,
+				sshPassphrase: config.sshPassphrase,
+				sshHostKeyFingerprint: config.sshHostKeyFingerprint,
+				sshSkipHostKey: config.sshSkipHostKey,
+				socketPath: config.socketPath || '/var/run/docker.sock'
+			});
+			sshFingerprint = fingerprint;
+
+			return json({
+				success: true,
+				info: {
+					serverVersion: info.ServerVersion,
+					containers: info.Containers,
+					images: info.Images,
+					name: info.Name
+				},
+				fingerprint: sshFingerprint
+			});
+		} else if (config.connectionType === 'socket') {
 			const socketPath = config.socketPath || '/var/run/docker.sock';
 			response = await unixSocketRequest(socketPath, '/info');
 		} else if (config.connectionType === 'hawser-edge') {
-			// Edge mode - cannot test directly, agent connects to us
 			return json({
 				success: true,
 				info: {
@@ -101,7 +144,6 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				isEdgeMode: true
 			});
 		} else {
-			// Direct or Hawser Standard - HTTP/HTTPS connection
 			const protocol = config.protocol || 'http';
 			const host = config.host;
 			const port = config.port || 2375;
@@ -110,10 +152,6 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				return json({ success: false, error: 'Host is required' }, { status: 400 });
 			}
 
-			// SSRF guard: host/port come straight from the request body. A remote
-			// Docker/Hawser daemon legitimately lives on a LAN, so allow private
-			// ranges but block loopback + cloud metadata (169.254.169.254) + reserved
-			// so this tester can't be used to probe the control plane or metadata IMDS.
 			const hostSafety = isSafeNotificationUrl(`${protocol}://${host}:${port}`);
 			if (!hostSafety.ok) {
 				return json({ success: false, error: `Host not allowed: ${hostSafety.reason}` }, { status: 200 });
@@ -147,11 +185,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 
 		const info = await response.json();
 
-		// For Hawser Standard, also try to fetch Hawser info
 		let hawserInfo = null;
 		if (config.connectionType === 'hawser-standard' && config.host) {
 			try {
-				const protocol = config.protocol || 'http';
 				const hawserHeaders: Record<string, string> = {};
 				if (config.hawserToken) {
 					hawserHeaders['X-Hawser-Token'] = config.hawserToken;
@@ -191,14 +227,13 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		const rawMessage = error instanceof Error ? error.message : 'Connection failed';
 		console.error('Failed to test connection:', rawMessage);
 
-		// Provide more helpful error messages
 		let message = rawMessage;
 		if (rawMessage.includes('401') || rawMessage.toLowerCase().includes('unauthorized')) {
 			message = 'Invalid token - check that the Hawser token matches';
 		} else if (rawMessage.includes('403') || rawMessage.toLowerCase().includes('forbidden')) {
 			message = 'Access forbidden - check token permissions';
 		} else if (rawMessage.includes('ECONNREFUSED') || rawMessage.includes('Connection refused')) {
-			message = 'Connection refused - is Docker/Hawser running?';
+			message = 'Connection refused - is Docker/Hawser/SSH running?';
 		} else if (rawMessage.includes('ETIMEDOUT') || rawMessage.includes('timeout') || rawMessage.includes('Timeout')) {
 			message = 'Connection timed out - check host and port';
 		} else if (rawMessage.includes('ENOTFOUND') || rawMessage.includes('getaddrinfo')) {
@@ -208,7 +243,11 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		} else if (rawMessage.includes('ENOENT') || rawMessage.includes('no such file')) {
 			message = 'Socket not found - check the socket path';
 		} else if (rawMessage.includes('EACCES') || rawMessage.includes('permission denied')) {
-			message = 'Permission denied - check socket permissions';
+			message = 'Permission denied - check socket/SSH permissions';
+		} else if (rawMessage.includes('host key mismatch')) {
+			message = rawMessage;
+		} else if (rawMessage.includes('All configured authentication methods failed') || rawMessage.includes('Authentication')) {
+			message = 'SSH authentication failed - check username, password, or private key';
 		} else if (rawMessage.includes('typo in the url') || rawMessage.includes('Was there a typo')) {
 			message = 'Connection failed - check host and port';
 		} else if (rawMessage.includes('self signed certificate') || rawMessage.includes('UNABLE_TO_VERIFY_LEAF_SIGNATURE')) {

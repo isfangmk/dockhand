@@ -45,7 +45,7 @@
 	// The stack folder resolves to a host path by a DIFFERENT route per environment type, so the
 	// "where this path comes from" help must differ too (undefined = socket, the default).
 	const envKind = $derived(
-		connectionType === 'direct' ? 'direct'
+		connectionType === 'direct' || connectionType === 'ssh' ? 'direct'
 		: connectionType === 'hawser-standard' || connectionType === 'hawser-edge' ? 'hawser'
 		: 'socket'
 	);

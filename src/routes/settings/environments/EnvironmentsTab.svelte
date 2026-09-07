@@ -22,6 +22,7 @@
 		Route,
 		UndoDot,
 		Unplug,
+		Key,
 		CircleArrowUp,
 		CircleFadingArrowUp,
 		Clock,
@@ -61,7 +62,9 @@
 		collectActivity: boolean;
 		collectMetrics: boolean;
 		highlightChanges: boolean;
-		connectionType?: 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge';
+		sshPort?: number;
+		sshUsername?: string;
+		connectionType?: 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge' | 'ssh';
 		labels?: string[];
 		createdAt: string;
 		updatedAt: string;
@@ -447,6 +450,10 @@
 										<span title="Direct Docker connection" class="shrink-0">
 											<Icon iconNode={whale} class="w-3.5 h-3.5 text-blue-500 glow-blue" />
 										</span>
+									{:else if env.connectionType === 'ssh'}
+										<span title="SSH host connection" class="shrink-0">
+											<Key class="w-3.5 h-3.5 text-amber-500" />
+										</span>
 									{:else if env.connectionType === 'hawser-standard'}
 										<span title="Hawser agent (standard mode)" class="shrink-0">
 											<Route class="w-3.5 h-3.5 text-purple-500 glow-purple" />
@@ -467,6 +474,8 @@
 										{env.socketPath || '/var/run/docker.sock'}
 									{:else if env.connectionType === 'hawser-edge'}
 										Edge connection (outbound)
+									{:else if env.connectionType === 'ssh'}
+										ssh://{env.sshUsername || 'user'}@{env.host}:{env.sshPort || 22}
 									{:else}
 										{env.protocol || 'http'}://{env.host}:{env.port || 2375}
 									{/if}

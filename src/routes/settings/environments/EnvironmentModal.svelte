@@ -99,7 +99,7 @@
 	];
 
 	// Types
-	type ConnectionType = 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge';
+	type ConnectionType = 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge' | 'ssh';
 
 	interface Environment {
 		id: number;
@@ -109,13 +109,20 @@
 		protocol: string;
 		tlsCa?: string;
 		tlsCert?: string;
-		// tlsKey / hawserToken are never returned by the API (write-only secrets); the
-		// has* flags say whether one is stored.
+		// tlsKey / hawserToken / SSH secrets are never returned by the API (write-only);
+		// the has* flags say whether one is stored.
 		hasTlsKey?: boolean;
 		hasHawserToken?: boolean;
+		hasSshPassword?: boolean;
+		hasSshPrivateKey?: boolean;
 		tlsSkipVerify?: boolean;
 		icon?: string;
 		socketPath?: string;
+		sshPort?: number;
+		sshUsername?: string;
+		sshAuthType?: 'password' | 'key';
+		sshHostKeyFingerprint?: string;
+		sshSkipHostKey?: boolean;
 		collectActivity: boolean;
 		collectMetrics: boolean;
 		highlightChanges: boolean;
@@ -307,11 +314,22 @@
 	// Envs that keep stack files on a REMOTE host, so backup needs a declared stack path.
 	// For hawser it is backup-only (the agent owns its STACKS_DIR). For direct it also drives
 	// deploy: Dockhand copies the folder there and rewrites relative binds to that host path.
-	const usesStackPath = (ct: ConnectionType) => ct === 'direct' || ct === 'hawser-standard' || ct === 'hawser-edge';
+	const usesStackPath = (ct: ConnectionType) =>
+		ct === 'direct' || ct === 'hawser-standard' || ct === 'hawser-edge' || ct === 'ssh';
 	const isHawserConn = (ct: ConnectionType) => ct === 'hawser-standard' || ct === 'hawser-edge';
 	let formHawserToken = $state('');
 	// Whether a hawser token is already stored (value never returned by the API).
 	let hasStoredHawserToken = $state(false);
+	let formSshPort = $state(22);
+	let formSshUsername = $state('');
+	let formSshAuthType = $state<'password' | 'key'>('password');
+	let formSshPassword = $state('');
+	let formSshPrivateKey = $state('');
+	let formSshPassphrase = $state('');
+	let formSshSkipHostKey = $state(false);
+	let formSshHostKeyFingerprint = $state('');
+	let hasStoredSshPassword = $state(false);
+	let hasStoredSshPrivateKey = $state(false);
 	let formLabels = $state<string[]>([]);
 	let newLabelInput = $state('');
 	let showLabelDropdown = $state(false);
@@ -601,6 +619,16 @@
 			formConnectionType = (environment.connectionType as ConnectionType) || 'socket';
 			formHawserToken = '';
 			hasStoredHawserToken = !!environment.hasHawserToken;
+			formSshPort = environment.sshPort || 22;
+			formSshUsername = environment.sshUsername || '';
+			formSshAuthType = environment.sshAuthType === 'key' ? 'key' : 'password';
+			formSshPassword = '';
+			formSshPrivateKey = '';
+			formSshPassphrase = '';
+			formSshSkipHostKey = environment.sshSkipHostKey ?? false;
+			formSshHostKeyFingerprint = environment.sshHostKeyFingerprint || '';
+			hasStoredSshPassword = !!environment.hasSshPassword;
+			hasStoredSshPrivateKey = !!environment.hasSshPrivateKey;
 			formLabels = parseLabels(environment.labels);
 			newLabelInput = '';
 			formPublicIp = environment.publicIp || '';
@@ -649,6 +677,16 @@
 			formConnectionType = 'socket';
 			formHawserToken = '';
 			hasStoredHawserToken = false;
+			formSshPort = 22;
+			formSshUsername = '';
+			formSshAuthType = 'password';
+			formSshPassword = '';
+			formSshPrivateKey = '';
+			formSshPassphrase = '';
+			formSshSkipHostKey = false;
+			formSshHostKeyFingerprint = '';
+			hasStoredSshPassword = false;
+			hasStoredSshPrivateKey = false;
 			formLabels = [];
 			newLabelInput = '';
 			formPublicIp = '';
@@ -744,6 +782,14 @@
 					tlsKey: cleanCertificate(formTlsKey),
 					tlsSkipVerify: formTlsSkipVerify,
 					hawserToken: formHawserToken || pendingToken,
+					sshPort: formSshPort,
+					sshUsername: formSshUsername,
+					sshAuthType: formSshAuthType,
+					sshPassword: formSshPassword || undefined,
+					sshPrivateKey: formSshPrivateKey || undefined,
+					sshPassphrase: formSshPassphrase || undefined,
+					sshSkipHostKey: formSshSkipHostKey,
+					sshHostKeyFingerprint: formSshHostKeyFingerprint || undefined,
 					// When editing, let the server fall back to the stored token/key for any
 					// secret the form left blank (secrets are never sent back to the client) (#1483).
 					environmentId: isEditing && environment ? environment.id : undefined
@@ -754,6 +800,9 @@
 			testResult = result;
 
 			if (result.success) {
+				if (result.fingerprint) {
+					formSshHostKeyFingerprint = result.fingerprint;
+				}
 				if (result.isEdgeMode) {
 					toast.info('Edge mode - connection will be tested when agent connects');
 				} else {
@@ -818,8 +867,8 @@
 				hasErrors = true;
 			}
 		}
-		// Host is only required for direct and hawser-standard connection types
-		if (formConnectionType === 'direct' || formConnectionType === 'hawser-standard') {
+		// Host is required for direct, hawser-standard, and SSH connection types
+		if (formConnectionType === 'direct' || formConnectionType === 'hawser-standard' || formConnectionType === 'ssh') {
 			if (!formHost.trim()) {
 				formErrors.host = 'Host is required';
 				hasErrors = true;
@@ -829,6 +878,20 @@
 					formErrors.host = 'Enter an IP address or hostname only (no protocol or port)';
 					hasErrors = true;
 				}
+			}
+		}
+		if (formConnectionType === 'ssh') {
+			if (!formSshUsername.trim()) {
+				formErrors.host = formErrors.host || 'SSH username is required';
+				hasErrors = true;
+			}
+			if (formSshAuthType === 'password' && !formSshPassword && !hasStoredSshPassword) {
+				toast.error('SSH password is required');
+				hasErrors = true;
+			}
+			if (formSshAuthType === 'key' && !formSshPrivateKey && !hasStoredSshPrivateKey) {
+				toast.error('SSH private key is required');
+				hasErrors = true;
 			}
 		}
 
@@ -843,21 +906,36 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					name: formName.trim(),
-					host: formConnectionType === 'hawser-edge' ? 'edge-agent' : (formConnectionType === 'socket' ? undefined : formHost.trim()),
-					port: formConnectionType === 'socket' ? undefined : formPort,
-					protocol: formConnectionType === 'socket' ? undefined : formProtocol,
+					host:
+						formConnectionType === 'hawser-edge'
+							? 'edge-agent'
+							: formConnectionType === 'socket'
+								? undefined
+								: formHost.trim(),
+					port: formConnectionType === 'socket' || formConnectionType === 'ssh' ? undefined : formPort,
+					protocol: formConnectionType === 'socket' || formConnectionType === 'ssh' ? undefined : formProtocol,
 					tlsCa: cleanCertificate(formTlsCa),
 					tlsCert: cleanCertificate(formTlsCert),
 					tlsKey: cleanCertificate(formTlsKey),
 					tlsSkipVerify: formTlsSkipVerify,
 					icon: pendingIconData ? 'globe' : formIcon,
-					socketPath: formConnectionType === 'socket' ? formSocketPath : undefined,
+					socketPath:
+						formConnectionType === 'socket' || formConnectionType === 'ssh' ? formSocketPath : undefined,
 					collectActivity: formCollectActivity,
 					collectMetrics: formCollectMetrics,
 					highlightChanges: formHighlightChanges,
 					labels: formLabels,
 					connectionType: formConnectionType,
 					hawserToken: formHawserToken || undefined,
+					sshPort: formConnectionType === 'ssh' ? formSshPort : undefined,
+					sshUsername: formConnectionType === 'ssh' ? formSshUsername.trim() : undefined,
+					sshAuthType: formConnectionType === 'ssh' ? formSshAuthType : undefined,
+					sshPassword: formConnectionType === 'ssh' ? formSshPassword || undefined : undefined,
+					sshPrivateKey: formConnectionType === 'ssh' ? formSshPrivateKey || undefined : undefined,
+					sshPassphrase: formConnectionType === 'ssh' ? formSshPassphrase || undefined : undefined,
+					sshSkipHostKey: formConnectionType === 'ssh' ? formSshSkipHostKey : undefined,
+					sshHostKeyFingerprint:
+						formConnectionType === 'ssh' ? formSshHostKeyFingerprint || undefined : undefined,
 					publicIp: stripHostProtocol(formPublicIp.trim()) || undefined
 				})
 			});
@@ -944,8 +1022,8 @@
 				hasErrors = true;
 			}
 		}
-		// Host is only required for direct and hawser-standard connection types
-		if (formConnectionType === 'direct' || formConnectionType === 'hawser-standard') {
+		// Host is required for direct, hawser-standard, and SSH connection types
+		if (formConnectionType === 'direct' || formConnectionType === 'hawser-standard' || formConnectionType === 'ssh') {
 			if (!formHost.trim()) {
 				formErrors.host = 'Host is required';
 				hasErrors = true;
@@ -955,6 +1033,20 @@
 					formErrors.host = 'Enter an IP address or hostname only (no protocol or port)';
 					hasErrors = true;
 				}
+			}
+		}
+		if (formConnectionType === 'ssh') {
+			if (!formSshUsername.trim()) {
+				formErrors.host = formErrors.host || 'SSH username is required';
+				hasErrors = true;
+			}
+			if (formSshAuthType === 'password' && !formSshPassword && !hasStoredSshPassword) {
+				toast.error('SSH password is required');
+				hasErrors = true;
+			}
+			if (formSshAuthType === 'key' && !formSshPrivateKey && !hasStoredSshPrivateKey) {
+				toast.error('SSH private key is required');
+				hasErrors = true;
 			}
 		}
 
@@ -1024,21 +1116,36 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					name: formName.trim(),
-					host: formConnectionType === 'hawser-edge' ? 'edge-agent' : (formConnectionType === 'socket' ? undefined : formHost.trim()),
-					port: formConnectionType === 'socket' ? undefined : formPort,
-					protocol: formConnectionType === 'socket' ? undefined : formProtocol,
+					host:
+						formConnectionType === 'hawser-edge'
+							? 'edge-agent'
+							: formConnectionType === 'socket'
+								? undefined
+								: formHost.trim(),
+					port: formConnectionType === 'socket' || formConnectionType === 'ssh' ? undefined : formPort,
+					protocol: formConnectionType === 'socket' || formConnectionType === 'ssh' ? undefined : formProtocol,
 					tlsCa: cleanCertificate(formTlsCa),
 					tlsCert: cleanCertificate(formTlsCert),
 					tlsKey: cleanCertificate(formTlsKey),
 					tlsSkipVerify: formTlsSkipVerify,
 					icon: formIcon,
-					socketPath: formConnectionType === 'socket' ? formSocketPath : undefined,
+					socketPath:
+						formConnectionType === 'socket' || formConnectionType === 'ssh' ? formSocketPath : undefined,
 					collectActivity: formCollectActivity,
 					collectMetrics: formCollectMetrics,
 					highlightChanges: formHighlightChanges,
 					labels: formLabels,
 					connectionType: formConnectionType,
 					hawserToken: formHawserToken || undefined,
+					sshPort: formConnectionType === 'ssh' ? formSshPort : undefined,
+					sshUsername: formConnectionType === 'ssh' ? formSshUsername.trim() : undefined,
+					sshAuthType: formConnectionType === 'ssh' ? formSshAuthType : undefined,
+					sshPassword: formConnectionType === 'ssh' ? formSshPassword || undefined : undefined,
+					sshPrivateKey: formConnectionType === 'ssh' ? formSshPrivateKey || undefined : undefined,
+					sshPassphrase: formConnectionType === 'ssh' ? formSshPassphrase || undefined : undefined,
+					sshSkipHostKey: formConnectionType === 'ssh' ? formSshSkipHostKey : undefined,
+					sshHostKeyFingerprint:
+						formConnectionType === 'ssh' ? formSshHostKeyFingerprint || undefined : undefined,
 					publicIp: stripHostProtocol(formPublicIp.trim()) || null
 				})
 			});
@@ -1850,6 +1957,9 @@
 									formPort = 2375;
 								} else if (v === 'hawser-standard') {
 									formPort = 2376;
+								} else if (v === 'ssh') {
+									formSshPort = 22;
+									if (!formSocketPath) formSocketPath = '/var/run/docker.sock';
 								}
 							}}>
 								<Select.Trigger class="w-full">
@@ -1863,6 +1973,9 @@
 										{:else if formConnectionType === 'hawser-standard'}
 											<Route class="w-4 h-4 text-purple-500" />
 											Hawser agent (standard)
+										{:else if formConnectionType === 'ssh'}
+											<Key class="w-4 h-4 text-amber-500" />
+											SSH host
 										{:else}
 											<UndoDot class="w-4 h-4 text-green-500" />
 											Hawser agent (edge)
@@ -1880,6 +1993,12 @@
 										<span class="flex items-center gap-2">
 											<Icon iconNode={whale} class="w-4 h-4 text-blue-500" />
 											Direct connection
+										</span>
+									</Select.Item>
+									<Select.Item value="ssh">
+										<span class="flex items-center gap-2">
+											<Key class="w-4 h-4 text-amber-500" />
+											SSH host
 										</span>
 									</Select.Item>
 									<Select.Item value="hawser-standard">
@@ -1902,6 +2021,8 @@
 									Connect via Unix socket on the same machine.
 								{:else if formConnectionType === 'direct'}
 									Connect directly to Docker Engine API on TCP port.
+								{:else if formConnectionType === 'ssh'}
+									Connect over SSH and tunnel to the remote Docker socket. Compose runs on the remote host.
 								{:else if formConnectionType === 'hawser-standard'}
 									<a href="https://github.com/Finsys/hawser" target="_blank" class="text-blue-500 hover:underline">Hawser</a> agent listens, Dockhand connects.
 								{:else}
@@ -1998,6 +2119,16 @@
 														where the stack files actually live.
 													</p>
 												</div>
+											{:else if formConnectionType === 'ssh'}
+												<div class="space-y-2">
+													<p class="font-medium">Where compose files are written on the SSH host</p>
+													<p class="text-muted-foreground">
+														Dockhand uploads each stack to
+														<code class="bg-muted px-1 rounded">&lt;this path&gt;/&lt;stack&gt;</code>
+														and runs <code class="bg-muted px-1 rounded">docker compose</code> there.
+														Default if empty: <code class="bg-muted px-1 rounded">/var/lib/dockhand/stacks</code>.
+													</p>
+												</div>
 											{:else}
 												<div class="space-y-2">
 													<p class="font-medium">Where this stack's files live on the host</p>
@@ -2037,6 +2168,119 @@
 									{/if}
 								</p>
 							</div>
+						{/if}
+
+						<!-- SSH host connection settings -->
+						{#if formConnectionType === 'ssh'}
+							<div class="grid grid-cols-2 gap-4">
+								<div class="space-y-2">
+									<Label for="edit-env-ssh-host">Host</Label>
+									<Input
+										id="edit-env-ssh-host"
+										bind:value={formHost}
+										placeholder="192.168.1.100"
+										class={formErrors.host ? 'border-destructive focus-visible:ring-destructive' : ''}
+										oninput={() => { formErrors.host = undefined; handleHostInput(); }}
+										onblur={() => handleHostInput(true)}
+									/>
+									{#if formErrors.host}
+										<p class="text-xs text-destructive">{formErrors.host}</p>
+									{/if}
+								</div>
+								<div class="space-y-2">
+									<Label for="edit-env-ssh-port">SSH port</Label>
+									<Input id="edit-env-ssh-port" type="number" bind:value={formSshPort} />
+								</div>
+							</div>
+							<div class="grid grid-cols-2 gap-4">
+								<div class="space-y-2">
+									<Label for="edit-env-ssh-user">Username</Label>
+									<Input id="edit-env-ssh-user" bind:value={formSshUsername} placeholder="root" />
+								</div>
+								<div class="space-y-2">
+									<Label for="edit-env-ssh-socket">Remote Docker socket</Label>
+									<Input id="edit-env-ssh-socket" bind:value={formSocketPath} placeholder="/var/run/docker.sock" />
+								</div>
+							</div>
+							<div class="space-y-2">
+								<Label>Authentication</Label>
+								<ToggleGroup
+									bind:value={formSshAuthType}
+									options={[
+										{ value: 'password', label: 'Password' },
+										{ value: 'key', label: 'Private key' }
+									]}
+								/>
+							</div>
+							{#if formSshAuthType === 'password'}
+								<div class="space-y-2">
+									<Label for="edit-env-ssh-password">Password</Label>
+									<Input
+										id="edit-env-ssh-password"
+										type="password"
+										bind:value={formSshPassword}
+										placeholder={hasStoredSshPassword ? 'Leave blank to keep stored password' : 'SSH password'}
+										autocomplete="new-password"
+									/>
+								</div>
+							{:else}
+								<div class="space-y-2">
+									<div class="flex items-center justify-between gap-2">
+										<Label for="edit-env-ssh-key">Private key (PEM)</Label>
+										<Button
+											variant="ghost"
+											size="sm"
+											type="button"
+											class="h-7 px-2 text-xs"
+											onclick={() => document.getElementById('edit-env-ssh-key-file')?.click()}
+										>
+											<Upload class="w-3 h-3 mr-1" />
+											Upload file
+										</Button>
+										<input
+											id="edit-env-ssh-key-file"
+											type="file"
+											accept=".pem,.key,.id_rsa,.id_ed25519,text/plain"
+											class="hidden"
+											onchange={(e) => loadPemFromFile(e, (t) => (formSshPrivateKey = t), 'SSH private key')}
+										/>
+									</div>
+									<textarea
+										id="edit-env-ssh-key"
+										bind:value={formSshPrivateKey}
+										placeholder={hasStoredSshPrivateKey
+											? 'Leave blank to keep stored key'
+											: '-----BEGIN OPENSSH PRIVATE KEY-----'}
+										class="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
+									></textarea>
+								</div>
+								<div class="space-y-2">
+									<Label for="edit-env-ssh-passphrase">Key passphrase (optional)</Label>
+									<Input
+										id="edit-env-ssh-passphrase"
+										type="password"
+										bind:value={formSshPassphrase}
+										placeholder="Leave blank if key has no passphrase"
+										autocomplete="new-password"
+									/>
+								</div>
+							{/if}
+							<div class="flex items-center gap-2 pt-1">
+								<input
+									id="edit-env-ssh-skip-host"
+									type="checkbox"
+									bind:checked={formSshSkipHostKey}
+									class="rounded border-input"
+								/>
+								<Label for="edit-env-ssh-skip-host" class="font-normal text-sm">
+									Skip SSH host key verification (insecure)
+								</Label>
+							</div>
+							{#if formSshHostKeyFingerprint}
+								<p class="text-xs text-muted-foreground font-mono break-all">
+									Host key: {formSshHostKeyFingerprint}
+								</p>
+							{/if}
 						{/if}
 
 						<!-- Direct connection settings -->

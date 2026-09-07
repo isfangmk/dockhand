@@ -16,6 +16,7 @@ import { cleanPem } from '$lib/utils/pem';
 import { validateEnvName } from '$lib/utils/env-name';
 import { unregisterSchedule } from '$lib/server/scheduler';
 import { closeEdgeConnection } from '$lib/server/hawser';
+import { closeSshTunnel } from '$lib/server/ssh-tunnel';
 import { computeAuditDiff } from '$lib/utils/diff';
 import { deleteEnvironmentIcon } from '$lib/server/env-icons';
 
@@ -162,13 +163,14 @@ export const PUT: RequestHandler = async (event) => {
 			? serializeLabels(Array.isArray(data.labels) ? data.labels.slice(0, MAX_LABELS) : [])
 			: undefined;
 
-		// The GET/list responses never return the tlsKey / hawserToken secrets, so the
-		// edit form can't round-trip them. A blank value therefore means "keep the stored
-		// secret" (pass undefined so updateEnvironment leaves the column untouched); a
-		// non-blank value replaces it. Same "leave blank to keep" pattern as registries /
-		// git credentials. (Removing a secret entirely is done by deleting the env.)
+		// The GET/list responses never return secret fields, so the edit form can't
+		// round-trip them. A blank value therefore means "keep the stored secret".
 		const cleanedTlsKey = cleanPem(data.tlsKey);
 		const trimmedToken = typeof data.hawserToken === 'string' ? data.hawserToken.trim() : data.hawserToken;
+		const trimmedSshPassword = typeof data.sshPassword === 'string' ? data.sshPassword.trim() : data.sshPassword;
+		const trimmedSshKey = typeof data.sshPrivateKey === 'string' ? data.sshPrivateKey.trim() : data.sshPrivateKey;
+		const trimmedSshPassphrase =
+			typeof data.sshPassphrase === 'string' ? data.sshPassphrase.trim() : data.sshPassphrase;
 		const env = await updateEnvironment(id, {
 			name: data.name,
 			host: data.host,
@@ -185,7 +187,15 @@ export const PUT: RequestHandler = async (event) => {
 			highlightChanges: data.highlightChanges,
 			labels: labels,
 			connectionType: data.connectionType,
-			hawserToken: trimmedToken || undefined
+			hawserToken: trimmedToken || undefined,
+			sshPort: data.sshPort,
+			sshUsername: data.sshUsername,
+			sshAuthType: data.sshAuthType,
+			sshPassword: trimmedSshPassword || undefined,
+			sshPrivateKey: trimmedSshKey || undefined,
+			sshPassphrase: trimmedSshPassphrase || undefined,
+			sshHostKeyFingerprint: data.sshHostKeyFingerprint,
+			sshSkipHostKey: data.sshSkipHostKey
 		});
 
 		if (!env) {
@@ -213,7 +223,16 @@ export const PUT: RequestHandler = async (event) => {
 
 		// Compute diff for audit (exclude sensitive TLS fields)
 		const diff = computeAuditDiff(oldEnv, env, {
-			excludeFields: ['tlsCa', 'tlsCert', 'tlsKey', 'hawserToken', 'labels']
+			excludeFields: [
+				'tlsCa',
+				'tlsCert',
+				'tlsKey',
+				'hawserToken',
+				'sshPassword',
+				'sshPrivateKey',
+				'sshPassphrase',
+				'labels'
+			]
 		});
 
 		// Audit log
@@ -271,9 +290,9 @@ export const DELETE: RequestHandler = async (event) => {
 			return json({ error: 'Cannot delete environment with empty name' }, { status: 500 });
 		}
 
-		// Close Edge connection if this is a Hawser Edge environment
-		// This rejects any pending requests and closes the WebSocket
+		// Close Edge / SSH tunnels before deleting
 		closeEdgeConnection(id);
+		closeSshTunnel(id);
 
 		// Clear cached Docker client before deleting
 		clearDockerClientCache(id);

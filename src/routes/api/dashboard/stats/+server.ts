@@ -56,7 +56,7 @@ export interface EnvironmentStats {
 	updateCheckEnabled: boolean;
 	updateCheckAutoUpdate: boolean;
 	labels?: string[];
-	connectionType: 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge';
+	connectionType: 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge' | 'ssh';
 	online?: boolean; // undefined = connecting, false = offline, true = online
 	error?: string;
 	containers: {
@@ -179,7 +179,7 @@ export const GET: RequestHandler = async ({ cookies, url }) => {
 				updateCheckEnabled: false,
 				updateCheckAutoUpdate: false,
 				labels: parseLabels(env.labels),
-				connectionType: (env.connectionType as 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge') || 'socket',
+				connectionType: (env.connectionType as 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge' | 'ssh') || 'socket',
 				online: false,
 				containers: { total: 0, running: 0, stopped: 0, paused: 0, restarting: 0, unhealthy: 0, pendingUpdates: 0 },
 				images: { total: 0, totalSize: 0 },

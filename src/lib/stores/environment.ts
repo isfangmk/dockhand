@@ -15,7 +15,7 @@ export interface Environment {
 	port?: number;
 	protocol?: string;
 	socketPath?: string;
-	connectionType?: 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge';
+			connectionType?: 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge' | 'ssh';
 	publicIp?: string | null;
 	timezone?: string;
 }

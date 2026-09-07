@@ -107,19 +107,35 @@ export const POST: RequestHandler = async (event) => {
 		}
 
 		// Validate connection type
-		const validConnectionTypes = ['socket', 'direct', 'hawser-standard', 'hawser-edge'];
+		const validConnectionTypes = ['socket', 'direct', 'hawser-standard', 'hawser-edge', 'ssh'];
 		const connectionType = data.connectionType || 'socket';
 		if (!validConnectionTypes.includes(connectionType)) {
 			return json({ error: `Invalid connection type: ${connectionType}` }, { status: 400 });
 		}
 
-		// Host is required for direct and hawser-standard connections
-		if ((connectionType === 'direct' || connectionType === 'hawser-standard') && !data.host) {
+		// Host is required for direct, hawser-standard, and SSH connections
+		if ((connectionType === 'direct' || connectionType === 'hawser-standard' || connectionType === 'ssh') && !data.host) {
 			return json({ error: 'Host is required for this connection type' }, { status: 400 });
+		}
+
+		if (connectionType === 'ssh') {
+			if (!data.sshUsername || typeof data.sshUsername !== 'string' || !data.sshUsername.trim()) {
+				return json({ error: 'SSH username is required' }, { status: 400 });
+			}
+			const authType = data.sshAuthType === 'key' ? 'key' : 'password';
+			if (authType === 'password' && !data.sshPassword) {
+				return json({ error: 'SSH password is required' }, { status: 400 });
+			}
+			if (authType === 'key' && !data.sshPrivateKey) {
+				return json({ error: 'SSH private key is required' }, { status: 400 });
+			}
 		}
 
 		// Validate labels
 		const labels = Array.isArray(data.labels) ? data.labels.slice(0, MAX_LABELS) : [];
+
+		const sshAuthType =
+			connectionType === 'ssh' ? (data.sshAuthType === 'key' ? 'key' : 'password') : undefined;
 
 		const env = await createEnvironment({
 			name: data.name,
@@ -137,7 +153,15 @@ export const POST: RequestHandler = async (event) => {
 			highlightChanges: data.highlightChanges !== false,
 			labels: serializeLabels(labels),
 			connectionType: connectionType,
-			hawserToken: data.hawserToken
+			hawserToken: data.hawserToken,
+			sshPort: connectionType === 'ssh' ? (data.sshPort || 22) : undefined,
+			sshUsername: connectionType === 'ssh' ? String(data.sshUsername).trim() : undefined,
+			sshAuthType,
+			sshPassword: connectionType === 'ssh' && sshAuthType === 'password' ? data.sshPassword : undefined,
+			sshPrivateKey: connectionType === 'ssh' && sshAuthType === 'key' ? data.sshPrivateKey : undefined,
+			sshPassphrase: connectionType === 'ssh' ? data.sshPassphrase : undefined,
+			sshHostKeyFingerprint: connectionType === 'ssh' ? data.sshHostKeyFingerprint : undefined,
+			sshSkipHostKey: connectionType === 'ssh' ? !!data.sshSkipHostKey : undefined
 		});
 
 		// Save public IP if provided

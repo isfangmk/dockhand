@@ -60,6 +60,7 @@
 	const isRemoteEnv = $derived(
 		currentEnvData?.connectionType === 'hawser-standard' ||
 		currentEnvData?.connectionType === 'hawser-edge' ||
+		currentEnvData?.connectionType === 'ssh' ||
 		(currentEnvData?.connectionType === 'direct' && !!currentEnvData?.host)
 	);
 

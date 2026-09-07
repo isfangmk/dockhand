@@ -25,6 +25,9 @@ describe('isRemoteEnvironment', () => {
 		expect(isRemoteEnvironment({ connectionType: 'hawser-standard' })).toBe(true);
 		expect(isRemoteEnvironment({ connectionType: 'hawser-edge' })).toBe(true);
 	});
+	test('ssh envs are remote', () => {
+		expect(isRemoteEnvironment({ connectionType: 'ssh', host: '192.168.1.10' })).toBe(true);
+	});
 	test('direct-with-host is remote (this includes a socket-proxy env)', () => {
 		expect(isRemoteEnvironment({ connectionType: 'direct', host: '192.168.1.221' })).toBe(true);
 	});

@@ -475,6 +475,20 @@ async function sendEnvironmentConfigs(): Promise<void> {
 				type: 'socket',
 				socketPath: env.socketPath || '/var/run/docker.sock'
 			};
+		} else if (env.connectionType === 'ssh') {
+			// Go worker 不感知 SSH：把本地隧道 sock 当成普通 Unix socket
+			const { ensureSshDockerTunnel } = await import('./ssh-tunnel.js');
+			try {
+				const socketPath = await ensureSshDockerTunnel(env.id);
+				config = {
+					type: 'socket',
+					socketPath
+				};
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : String(err);
+				console.warn(`[Subprocess] Skipping SSH env ${env.id} (${env.name}): ${msg}`);
+				continue;
+			}
 		} else {
 			const protocol = (env.protocol as string) || 'http';
 			config = {

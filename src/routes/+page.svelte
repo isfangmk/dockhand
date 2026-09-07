@@ -43,7 +43,7 @@
 		socketPath?: string;
 		collectActivity: boolean;
 		collectMetrics: boolean;
-		connectionType?: 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge';
+		connectionType?: 'socket' | 'direct' | 'hawser-standard' | 'hawser-edge' | 'ssh';
 		labels?: string[];
 	}
 
@@ -70,6 +70,7 @@
 	const connectionOptions = [
 		{ value: 'socket', label: 'Socket' },
 		{ value: 'direct', label: 'Direct', icon: Plug },
+		{ value: 'ssh', label: 'SSH', icon: Lock },
 		{ value: 'hawser-standard', label: 'Standard', icon: Route },
 		{ value: 'hawser-edge', label: 'Edge', icon: UndoDot }
 	];

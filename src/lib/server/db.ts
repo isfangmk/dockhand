@@ -129,7 +129,10 @@ export async function getEnvironments(): Promise<Environment[]> {
 	return results.map((e: Environment) => ({
 		...e,
 		tlsKey: decrypt(e.tlsKey),
-		hawserToken: decrypt(e.hawserToken)
+		hawserToken: decrypt(e.hawserToken),
+		sshPassword: decrypt(e.sshPassword),
+		sshPrivateKey: decrypt(e.sshPrivateKey),
+		sshPassphrase: decrypt(e.sshPassphrase)
 	}));
 }
 
@@ -144,7 +147,10 @@ export async function getEnvironment(id: number): Promise<Environment | undefine
 	return {
 		...results[0],
 		tlsKey: decrypt(results[0].tlsKey),
-		hawserToken: decrypt(results[0].hawserToken)
+		hawserToken: decrypt(results[0].hawserToken),
+		sshPassword: decrypt(results[0].sshPassword),
+		sshPrivateKey: decrypt(results[0].sshPrivateKey),
+		sshPassphrase: decrypt(results[0].sshPassphrase)
 	};
 }
 
@@ -154,7 +160,10 @@ export async function getEnvironmentByName(name: string): Promise<Environment | 
 	return {
 		...results[0],
 		tlsKey: decrypt(results[0].tlsKey),
-		hawserToken: decrypt(results[0].hawserToken)
+		hawserToken: decrypt(results[0].hawserToken),
+		sshPassword: decrypt(results[0].sshPassword),
+		sshPrivateKey: decrypt(results[0].sshPrivateKey),
+		sshPassphrase: decrypt(results[0].sshPassphrase)
 	};
 }
 
@@ -175,12 +184,23 @@ export async function createEnvironment(env: Omit<Environment, 'id' | 'createdAt
 		highlightChanges: env.highlightChanges !== false,
 		labels: env.labels || null,
 		connectionType: env.connectionType || 'socket',
-		hawserToken: encrypt(env.hawserToken) || null
+		hawserToken: encrypt(env.hawserToken) || null,
+		sshPort: env.sshPort ?? 22,
+		sshUsername: env.sshUsername || null,
+		sshAuthType: env.sshAuthType || null,
+		sshPassword: encrypt(env.sshPassword) || null,
+		sshPrivateKey: encrypt(env.sshPrivateKey) || null,
+		sshPassphrase: encrypt(env.sshPassphrase) || null,
+		sshHostKeyFingerprint: env.sshHostKeyFingerprint || null,
+		sshSkipHostKey: env.sshSkipHostKey ?? false
 	}).returning();
 	return {
 		...result[0],
 		tlsKey: decrypt(result[0].tlsKey),
-		hawserToken: decrypt(result[0].hawserToken)
+		hawserToken: decrypt(result[0].hawserToken),
+		sshPassword: decrypt(result[0].sshPassword),
+		sshPrivateKey: decrypt(result[0].sshPrivateKey),
+		sshPassphrase: decrypt(result[0].sshPassphrase)
 	};
 }
 
@@ -203,6 +223,15 @@ export async function updateEnvironment(id: number, env: Partial<Environment>): 
 	if (env.labels !== undefined) updateData.labels = env.labels;
 	if (env.connectionType !== undefined) updateData.connectionType = env.connectionType;
 	if (env.hawserToken !== undefined) updateData.hawserToken = encrypt(env.hawserToken);
+	if (env.sshPort !== undefined) updateData.sshPort = env.sshPort;
+	if (env.sshUsername !== undefined) updateData.sshUsername = env.sshUsername;
+	if (env.sshAuthType !== undefined) updateData.sshAuthType = env.sshAuthType;
+	// 与 git 凭证一致：仅非空字符串才覆盖密文，空串表示「保持原值」
+	if (env.sshPassword) updateData.sshPassword = encrypt(env.sshPassword);
+	if (env.sshPrivateKey) updateData.sshPrivateKey = encrypt(env.sshPrivateKey);
+	if (env.sshPassphrase) updateData.sshPassphrase = encrypt(env.sshPassphrase);
+	if (env.sshHostKeyFingerprint !== undefined) updateData.sshHostKeyFingerprint = env.sshHostKeyFingerprint;
+	if (env.sshSkipHostKey !== undefined) updateData.sshSkipHostKey = env.sshSkipHostKey;
 
 	await db.update(environments).set(updateData).where(eq(environments.id, id));
 	return getEnvironment(id);
