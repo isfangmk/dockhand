@@ -29,9 +29,11 @@
 		containerId: string;
 		containerName: string;
 		envId: number | null;
+		/** 当前是否为可见 Tab；隐藏时不断开连接，重新显示时重新 fit */
+		visible?: boolean;
 	}
 
-	let { containerId, containerName, envId }: Props = $props();
+	let { containerId, containerName, envId, visible = true }: Props = $props();
 
 	let terminalComponent: ReturnType<typeof Terminal> | undefined;
 	let connected = $state(false);
@@ -113,6 +115,16 @@
 		}
 		prevShell = selectedShell;
 		prevUser = committedUser;
+	});
+
+	// Tab 再次显示时校准 xterm 尺寸（隐藏期间容器宽高为 0）
+	$effect(() => {
+		if (visible && terminalComponent) {
+			requestAnimationFrame(() => {
+				terminalComponent?.fit();
+				terminalComponent?.focus();
+			});
+		}
 	});
 
 	connectedPoll = setInterval(() => {

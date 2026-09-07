@@ -44,6 +44,8 @@
 	let stateFilter = $state<'running' | 'all'>('running');
 	let loadingContainers = $state(false);
 	let lifecycleBusy = $state<'start' | 'stop' | 'restart' | null>(null);
+	/** 首次打开 Terminal 后保持挂载，切换 Tab 不断开 WebSocket */
+	let shellKeepAlive = $state(false);
 
 	const filteredContainers = $derived(() => {
 		let list = containers;
@@ -61,6 +63,11 @@
 		if (t === 'env') return 'overview';
 		if (t === 'overview' || t === 'terminal' || t === 'logs' || t === 'files') return t;
 		return 'files';
+	});
+
+	// 深链直接进 terminal 时也要挂载并保活
+	$effect(() => {
+		if (activeTab === 'terminal') shellKeepAlive = true;
 	});
 
 	const isRunning = $derived(selectedContainer?.state === 'running');
@@ -135,12 +142,14 @@
 	function selectContainer(c: ContainerInfo & { restartCount?: number }) {
 		if (selectedContainer?.id === c.id) return;
 		selectedContainer = c;
+		shellKeepAlive = activeTab === 'terminal';
 		syncUrl(c.id, activeTab);
 	}
 
 	function handleTabChange(tab: string) {
 		const next: WorkspaceTab =
 			tab === 'overview' || tab === 'terminal' || tab === 'logs' || tab === 'files' ? tab : 'files';
+		if (next === 'terminal') shellKeepAlive = true;
 		syncUrl(selectedContainer?.id ?? null, next);
 	}
 
@@ -359,14 +368,18 @@
 								<ContainerFilesTab container={selectedContainer} {envId} />
 							{/if}
 						</Tabs.Content>
-						<!-- 仅激活时挂载，避免后台占用 WebSocket -->
-						<Tabs.Content value="terminal" class="flex min-h-0 flex-1 flex-col overflow-hidden pt-0 data-[state=inactive]:hidden">
-							{#if activeTab === 'terminal'}
+						<!-- 首次打开后保持挂载，切换 Tab 仅 CSS 隐藏以维持终端长连接 -->
+						<Tabs.Content
+							value="terminal"
+							class="flex min-h-0 flex-1 flex-col overflow-hidden pt-0 data-[state=inactive]:hidden"
+						>
+							{#if shellKeepAlive}
 								{#key selectedContainer.id}
 									<ContainerShellTab
 										containerId={selectedContainer.id}
 										containerName={selectedContainer.name}
 										{envId}
+										visible={activeTab === 'terminal'}
 									/>
 								{/key}
 							{/if}
