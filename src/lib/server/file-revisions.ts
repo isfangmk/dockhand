@@ -177,3 +177,37 @@ export async function getFileRevision(id: number): Promise<ContainerFileRevision
 	const rows = await db.select().from(containerFileRevisions).where(eq(containerFileRevisions.id, id)).limit(1);
 	return rows[0] ?? null;
 }
+
+/** 删除单条修订记录（仅删库，不改容器内文件） */
+export async function deleteFileRevision(id: number): Promise<boolean> {
+	const deleted = await db
+		.delete(containerFileRevisions)
+		.where(eq(containerFileRevisions.id, id))
+		.returning({ id: containerFileRevisions.id });
+	return deleted.length > 0;
+}
+
+/** 删除某容器下某文件的全部修订记录 */
+export async function deleteFileRevisionsForPath(
+	environmentId: number | null | undefined,
+	containerName: string,
+	filePath: string
+): Promise<number> {
+	const path = normalizeFilePath(filePath);
+	const envId = environmentId ?? null;
+	const envFilter =
+		envId == null
+			? isNull(containerFileRevisions.environmentId)
+			: eq(containerFileRevisions.environmentId, envId);
+	const deleted = await db
+		.delete(containerFileRevisions)
+		.where(
+			and(
+				envFilter,
+				eq(containerFileRevisions.containerName, containerName),
+				eq(containerFileRevisions.filePath, path)
+			)
+		)
+		.returning({ id: containerFileRevisions.id });
+	return deleted.length;
+}

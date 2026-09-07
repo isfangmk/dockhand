@@ -561,6 +561,62 @@
 		}
 	}
 
+	/** 删除单条修订记录；若正在对比该条则关闭 diff */
+	async function deleteRevision(rev: RevisionMeta) {
+		if (!canEdit) return;
+		if (!confirm(`Delete revision #${rev.id} for ${rev.filePath}?`)) return;
+		try {
+			const params = new URLSearchParams({ revisionId: String(rev.id) });
+			if (envId != null) params.set('env', String(envId));
+			const res = await fetch(`/api/containers/${container.id}/files/revisions?${params}`, {
+				method: 'DELETE'
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error || 'Failed to delete');
+			toast.success('Revision deleted');
+			if (diffView?.revisionId === rev.id) diffView = null;
+			await loadChangedFiles();
+			const remaining = (revisionsByPath[rev.filePath] || []).filter((r) => r.id !== rev.id);
+			if (remaining.length === 0) {
+				const next = new Set(expandedHistory);
+				next.delete(rev.filePath);
+				expandedHistory = next;
+				const { [rev.filePath]: _, ...rest } = revisionsByPath;
+				revisionsByPath = rest;
+			} else {
+				revisionsByPath = { ...revisionsByPath, [rev.filePath]: remaining };
+				expandedHistory = new Set([...expandedHistory, rev.filePath]);
+			}
+		} catch (err: any) {
+			toast.error(err.message || 'Failed to delete revision');
+		}
+	}
+
+	/** 清空某文件的全部修订历史 */
+	async function deleteFileHistory(filePath: string) {
+		if (!canEdit) return;
+		if (!confirm(`Delete all revision history for ${filePath}?`)) return;
+		try {
+			const params = new URLSearchParams({ path: filePath });
+			if (envId != null) params.set('env', String(envId));
+			const res = await fetch(`/api/containers/${container.id}/files/revisions?${params}`, {
+				method: 'DELETE'
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error || 'Failed to delete');
+			toast.success(`Deleted ${data.deleted ?? 0} revision(s)`);
+			if (diffView?.filePath === filePath) diffView = null;
+			const next = new Set(expandedHistory);
+			next.delete(filePath);
+			expandedHistory = next;
+			const { [filePath]: _, ...rest } = revisionsByPath;
+			revisionsByPath = rest;
+			await loadChangedFiles();
+		} catch (err: any) {
+			toast.error(err.message || 'Failed to delete history');
+		}
+	}
+
 	async function uploadArchive() {
 		if (!archiveFile || !canEdit) return;
 		uploadingArchive = true;
@@ -921,7 +977,7 @@
 	<!-- 压缩包覆盖 + 变更历史 -->
 	<section class="flex min-h-0 flex-col">
 		<div class="flex h-11 shrink-0 items-center border-b px-3">
-			<span class="text-sm font-semibold">Deploy &amp; History</span>
+			<span class="text-sm font-semibold">Changes &amp; History</span>
 		</div>
 		<div class="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
 			<div class="overflow-hidden rounded-md border">
@@ -1010,47 +1066,57 @@
 										</div>
 									</button>
 									<Badge variant="secondary" class="mt-1 shrink-0 text-[10px]">{cf.revisionCount} revs</Badge>
+									{#if canEdit}
+										<button
+											type="button"
+											class="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+											title="Delete all history for this file"
+											onclick={() => deleteFileHistory(cf.filePath)}
+										>
+											<Trash2 class="h-3.5 w-3.5" />
+										</button>
+									{/if}
 								</div>
 								{#if open}
 									<div class="space-y-1 border-t bg-background/50 px-2 py-1 pl-7">
 										{#each revisionsByPath[cf.filePath] || [] as rev (rev.id)}
-											<button
-												type="button"
-												class="flex w-full items-start gap-2 rounded border p-2 text-left hover:bg-accent {diffView?.revisionId === rev.id
+											<div
+												class="flex w-full items-start gap-2 rounded border p-2 hover:bg-accent {diffView?.revisionId === rev.id
 													? 'border-primary bg-primary/5'
 													: ''}"
-												onclick={() => openRevisionDiff(rev)}
 											>
-												<div class="min-w-0 flex-1">
+												<button
+													type="button"
+													class="min-w-0 flex-1 text-left"
+													onclick={() => openRevisionDiff(rev)}
+												>
 													<div class="text-xs font-semibold">
 														{rev.sourceLabel || rev.source}
 													</div>
 													<div class="font-mono text-[11px] text-muted-foreground">
 														{formatTime(rev.createdAt)} · {rev.size} B
 													</div>
-												</div>
+												</button>
 												<Badge variant="secondary" class="text-[10px]">#{rev.id}</Badge>
 												{#if canEdit}
-													<span
-														role="button"
-														tabindex="0"
+													<button
+														type="button"
 														class="inline-flex h-6 shrink-0 items-center gap-0.5 rounded border px-1.5 text-[11px] hover:bg-background"
-														onclick={(e) => {
-															e.stopPropagation();
-															restoreRevision(rev);
-														}}
-														onkeydown={(e) => {
-															if (e.key === 'Enter' || e.key === ' ') {
-																e.preventDefault();
-																e.stopPropagation();
-																restoreRevision(rev);
-															}
-														}}
+														title="Restore this revision"
+														onclick={() => restoreRevision(rev)}
 													>
 														<RotateCcw class="h-3 w-3" />
-													</span>
+													</button>
+													<button
+														type="button"
+														class="inline-flex h-6 shrink-0 items-center gap-0.5 rounded border px-1.5 text-[11px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+														title="Delete this revision"
+														onclick={() => deleteRevision(rev)}
+													>
+														<Trash2 class="h-3 w-3" />
+													</button>
 												{/if}
-											</button>
+											</div>
 										{:else}
 											<p class="p-2 text-[11px] text-muted-foreground">No revisions</p>
 										{/each}

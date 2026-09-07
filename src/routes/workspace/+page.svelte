@@ -49,7 +49,12 @@
 
 	const filteredContainers = $derived(() => {
 		let list = containers;
-		if (stateFilter === 'running') list = list.filter((c) => c.state === 'running');
+		if (stateFilter === 'running') {
+			// 启停/重启中间态仍留在 running 筛选项，避免从列表消失
+			list = list.filter((c) =>
+				['running', 'starting', 'restarting', 'stopping'].includes(c.state.toLowerCase())
+			);
+		}
 		const q = containerSearch.trim().toLowerCase();
 		if (!q) return list;
 		return list.filter(
@@ -70,11 +75,29 @@
 		if (activeTab === 'terminal') shellKeepAlive = true;
 	});
 
-	const isRunning = $derived(selectedContainer?.state === 'running');
+	const isRunning = $derived(
+		!!selectedContainer &&
+			['running', 'restarting', 'stopping'].includes(selectedContainer.state.toLowerCase())
+	);
 	const isStopped = $derived(
 		!!selectedContainer &&
-			['exited', 'created', 'dead'].includes(selectedContainer.state.toLowerCase())
+			['exited', 'created', 'dead', 'starting'].includes(selectedContainer.state.toLowerCase())
 	);
+
+	/** 列表 / Header 状态徽章样式 */
+	function stateBadgeClass(state: string): string {
+		const s = state.toLowerCase();
+		if (s === 'running') {
+			return 'border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-400';
+		}
+		if (s === 'starting' || s === 'restarting' || s === 'stopping') {
+			return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-400';
+		}
+		if (s === 'exited' || s === 'dead' || s === 'created') {
+			return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-400';
+		}
+		return '';
+	}
 
 	const unsubscribeEnv = currentEnvironment.subscribe((env) => {
 		envId = env?.id ?? null;
@@ -87,6 +110,8 @@
 	});
 
 	let containerInterval: ReturnType<typeof setInterval> | null = setInterval(() => {
+		// 生命周期操作中勿用轮询覆盖 starting/stopping/restarting
+		if (lifecycleBusy) return;
 		if (envId != null || $currentEnvironment) fetchContainers({ silent: true });
 	}, 15000);
 
@@ -162,12 +187,28 @@
 		goto(`/workspace${qs ? `?${qs}` : ''}`, { replaceState: true, noScroll: true, keepFocus: true });
 	}
 
-	/** 启停/重启后刷新列表以更新状态 Badge */
+	/** 将选中容器与列表中的同 id 项同步到同一状态文案 */
+	function patchContainerState(id: string, state: string) {
+		if (selectedContainer?.id === id) {
+			selectedContainer.state = state;
+		}
+		containers = containers.map((c) => (c.id === id ? { ...c, state } : c));
+	}
+
+	/** 启停/重启对应的本地中间态，完成后由列表接口校正 */
+	const LIFECYCLE_PENDING_STATE: Record<'start' | 'stop' | 'restart', string> = {
+		start: 'starting',
+		stop: 'stopping',
+		restart: 'restarting'
+	};
+
+	/** 启停/重启：先乐观更新 Badge，完成后再拉列表校正 */
 	async function runLifecycle(action: 'start' | 'stop' | 'restart') {
 		if (!selectedContainer || lifecycleBusy) return;
 		const id = selectedContainer.id;
 		const name = selectedContainer.name;
 		lifecycleBusy = action;
+		patchContainerState(id, LIFECYCLE_PENDING_STATE[action]);
 		try {
 			const res = await fetch(apiUrl(`/api/containers/${id}/${action}`), { method: 'POST' });
 			const data = await res.json().catch(() => ({}));
@@ -178,6 +219,7 @@
 			await fetchContainers();
 		} catch (err: any) {
 			toast.error(err.message || `Failed to ${action}`);
+			await fetchContainers();
 		} finally {
 			lifecycleBusy = null;
 		}
@@ -233,12 +275,7 @@
 								<span class="block truncate text-sm font-semibold">{c.name}</span>
 								<span class="mt-0.5 block truncate text-[11px] text-muted-foreground">{c.image}</span>
 							</span>
-							<Badge
-								variant="outline"
-								class="mt-0.5 shrink-0 text-[10px] {c.state === 'running'
-									? 'border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-400'
-									: ''}"
-							>
+							<Badge variant="outline" class="mt-0.5 shrink-0 text-[10px] {stateBadgeClass(c.state)}">
 								{c.state}
 							</Badge>
 						</button>
@@ -262,9 +299,7 @@
 						<span class="min-w-0 truncate text-base font-semibold">{selectedContainer.name}</span>
 						<Badge
 							variant="outline"
-							class="shrink-0 text-[10px] {selectedContainer.state === 'running'
-								? 'border-green-200 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-400'
-								: ''}"
+							class="shrink-0 text-[10px] {stateBadgeClass(selectedContainer.state)}"
 						>
 							{selectedContainer.state}
 						</Badge>
