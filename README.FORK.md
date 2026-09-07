@@ -9,13 +9,47 @@
 - 远程 Compose 通过 **SFTP + 远端执行** 完成
 - 环境配置、连通性测试、凭证脱敏与相关数据库迁移一并补齐
 
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/fork/ssh-environments.png" alt="SSH environments list">
+      <p align="center"><sub><b>Environments</b> — 列表中可见 SSH 主机（如 <code>ssh://root@…</code>）与连通状态</sub></p>
+    </td>
+    <td width="50%">
+      <img src="docs/fork/ssh-environment-modal.png" alt="SSH environment modal">
+      <p align="center"><sub><b>Add / Edit environment</b> — Connection type 选择 <b>SSH host</b>，配置主机、端口与认证</sub></p>
+    </td>
+  </tr>
+</table>
+
 ## Workspace（容器工作区）
 
 - 新增侧边栏入口 **Workspace**（`/workspace`），按容器集中管理日常操作
 - 标签页：**Overview**（指标 / 启停重启）、**Files**、**Terminal**、**Logs**
 - **Files**：在线浏览与编辑；右侧 **Changes & History**（修改与历史）支持 zip 归档上传覆盖、变更文件列表、修订历史（变更前快照）、与容器 Latest 的侧栏 diff，以及删除单条或某文件全部修订
 - **Terminal**：首次打开后保持会话；切换标签仅隐藏，再次显示时 `fit` / `focus`
+- 启停 / 重启过程中状态徽章显示 `starting` / `stopping` / `restarting`，结束后再刷新为真实状态
 - 修订时间按设置中的默认时区与日期时间格式展示
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/fork/workspace-overview.png" alt="Workspace Overview">
+      <p align="center"><sub><b>Overview</b> — 指标、环境变量，以及 Restart / Stop</sub></p>
+    </td>
+    <td width="50%">
+      <img src="docs/fork/workspace-files.png" alt="Workspace Files">
+      <p align="center"><sub><b>Files</b> — 目录树 + 编辑器，右侧为 Changes &amp; History</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/fork/workspace-diff.png" alt="Workspace file revision diff">
+      <p align="center"><sub><b>Revision diff</b> — 历史修订 vs 容器 Latest（含中文路径）</sub></p>
+    </td>
+    <td width="50%"></td>
+  </tr>
+</table>
 
 ## 下载与非 ASCII 文件名
 
