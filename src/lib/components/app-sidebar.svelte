@@ -17,6 +17,7 @@
 		Download,
 		Settings,
 		Terminal,
+		LayoutPanelLeft,
 		Info,
 		Crown,
 		LogOut,
@@ -125,6 +126,7 @@
 	const menuItems: readonly MenuItem[] = [
 		{ href: '/?home', Icon: LayoutDashboard, label: 'Dashboard', permission: 'always' },
 		{ href: '/containers', Icon: Box, label: 'Containers', permission: 'containers' },
+		{ href: '/workspace', Icon: LayoutPanelLeft, label: 'Workspace', permission: 'containers' },
 		{ href: '/logs', Icon: ScrollText, label: 'Logs', permission: 'containers' },
 		{ href: '/terminal', Icon: Terminal, label: 'Shell', permission: 'containers' },
 		{ href: '/stacks', Icon: Layers, label: 'Stacks', permission: 'stacks' },

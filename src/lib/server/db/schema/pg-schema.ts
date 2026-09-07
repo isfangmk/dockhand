@@ -617,3 +617,23 @@ export const templateSources = pgTable('template_sources', {
 	createdAt: timestamp('created_at', { mode: 'string' }).defaultNow(),
 	updatedAt: timestamp('updated_at', { mode: 'string' }).defaultNow()
 });
+
+// =============================================================================
+// 容器内文件编辑修订历史（Files 页 Save / 压缩包覆盖前快照）
+// =============================================================================
+
+export const containerFileRevisions = pgTable('container_file_revisions', {
+	id: serial('id').primaryKey(),
+	environmentId: integer('environment_id').references(() => environments.id, { onDelete: 'cascade' }),
+	containerName: text('container_name').notNull(),
+	filePath: text('file_path').notNull(),
+	content: text('content').notNull(),
+	size: integer('size').notNull().default(0),
+	source: text('source').notNull().default('editor'),
+	sourceLabel: text('source_label'),
+	createdBy: integer('created_by').references(() => users.id, { onDelete: 'set null' }),
+	createdAt: timestamp('created_at', { mode: 'string' }).defaultNow()
+}, (table) => ({
+	envContainerPathIdx: index('cfr_env_container_path_idx').on(table.environmentId, table.containerName, table.filePath),
+	envContainerIdx: index('cfr_env_container_idx').on(table.environmentId, table.containerName)
+}));

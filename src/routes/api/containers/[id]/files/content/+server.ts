@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
-import { readContainerFile, writeContainerFile } from '$lib/server/docker';
+import { readContainerFile, writeContainerFile, inspectContainer } from '$lib/server/docker';
 import { authorize } from '$lib/server/authorize';
 import { validateDockerIdParam } from '$lib/server/docker-validation';
+import { saveFileRevision } from '$lib/server/file-revisions';
 import type { RequestHandler } from './$types';
 
 // Max file size for reading (1MB)
@@ -127,6 +128,26 @@ export const PUT: RequestHandler = async ({ params, url, cookies, request }) => 
 		// Check content size
 		if (body.content.length > MAX_FILE_SIZE) {
 			return json({ error: 'Content is too large (max 1MB)' }, { status: 413 });
+		}
+
+		// 写回前只存一条「变更前」快照；当前内容以容器内文件为准，不再记 HEAD
+		try {
+			const inspect = await inspectContainer(params.id, envIdNum);
+			const containerName = inspect.Name.replace(/^\//, '');
+			const previous = await readContainerFile(params.id, path, envIdNum);
+			if (previous !== body.content) {
+				await saveFileRevision({
+					environmentId: envIdNum ?? null,
+					containerName,
+					filePath: path,
+					content: previous,
+					source: 'editor',
+					sourceLabel: 'editor save',
+					createdBy: auth.user?.id ?? null
+				});
+			}
+		} catch {
+			// 新文件或不存在时无前值可快照
 		}
 
 		await writeContainerFile(

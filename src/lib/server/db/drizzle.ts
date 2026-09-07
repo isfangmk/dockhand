@@ -936,6 +936,7 @@ export const pendingContainerUpdates = schemaProxy.pendingContainerUpdates;
 export const apiTokens = schemaProxy.apiTokens;
 export const backupDestinations = schemaProxy.backupDestinations;
 export const backupConfigs = schemaProxy.backupConfigs;
+export const containerFileRevisions = schemaProxy.containerFileRevisions;
 
 // Re-export types from SQLite schema (they're compatible with PostgreSQL)
 export type {
@@ -1002,7 +1003,9 @@ export type {
 	BackupDestination,
 	NewBackupDestination,
 	BackupConfig,
-	NewBackupConfig
+	NewBackupConfig,
+	ContainerFileRevision,
+	NewContainerFileRevision
 } from './schema/index.js';
 
 export { eq, and, or, desc, asc, like, sql, inArray, isNull, isNotNull } from 'drizzle-orm';

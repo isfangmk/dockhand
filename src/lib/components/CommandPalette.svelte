@@ -13,6 +13,7 @@
 		Download,
 		Settings,
 		Terminal,
+		LayoutPanelLeft,
 		Eye,
 		Timer,
 		ClipboardList,
@@ -69,6 +70,7 @@
 	const navigationItems: CommandItem[] = [
 		{ name: 'Dashboard', href: '/', icon: LayoutDashboard, keywords: ['home', 'overview'] },
 		{ name: 'Containers', href: '/containers', icon: Box, keywords: ['docker', 'running'] },
+		{ name: 'Workspace', href: '/workspace', icon: LayoutPanelLeft, keywords: ['files', 'edit', 'browse', 'filesystem', 'shell', 'env', 'logs', 'overview'] },
 		{ name: 'Logs', href: '/logs', icon: ScrollText, keywords: ['output', 'debug'] },
 		{ name: 'Shell', href: '/terminal', icon: Terminal, keywords: ['exec', 'bash', 'sh'] },
 		{ name: 'Stacks', href: '/stacks', icon: Layers, keywords: ['compose', 'docker-compose'] },

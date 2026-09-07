@@ -617,6 +617,28 @@ export const templateSources = sqliteTable('template_sources', {
 });
 
 // =============================================================================
+// 容器内文件编辑修订历史（Files 页 Save / 压缩包覆盖前快照）
+// =============================================================================
+
+export const containerFileRevisions = sqliteTable('container_file_revisions', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	environmentId: integer('environment_id').references(() => environments.id, { onDelete: 'cascade' }),
+	// 用容器名而非 ID，重建容器后仍能关联历史
+	containerName: text('container_name').notNull(),
+	filePath: text('file_path').notNull(),
+	content: text('content').notNull(),
+	size: integer('size').notNull().default(0),
+	// editor | archive | restore | initial
+	source: text('source').notNull().default('editor'),
+	sourceLabel: text('source_label'),
+	createdBy: integer('created_by').references(() => users.id, { onDelete: 'set null' }),
+	createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`)
+}, (table) => ({
+	envContainerPathIdx: index('cfr_env_container_path_idx').on(table.environmentId, table.containerName, table.filePath),
+	envContainerIdx: index('cfr_env_container_idx').on(table.environmentId, table.containerName)
+}));
+
+// =============================================================================
 // TYPE EXPORTS
 // =============================================================================
 
@@ -715,3 +737,6 @@ export type NewBackupDestination = typeof backupDestinations.$inferInsert;
 
 export type BackupConfig = typeof backupConfigs.$inferSelect;
 export type NewBackupConfig = typeof backupConfigs.$inferInsert;
+
+export type ContainerFileRevision = typeof containerFileRevisions.$inferSelect;
+export type NewContainerFileRevision = typeof containerFileRevisions.$inferInsert;
